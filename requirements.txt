@@ -1,0 +1,20 @@
+keras>=3.0
+numpy
+
+# Choose one Keras 3 backend:
+# tensorflow>=2.16
+# jax[cpu]>=0.4
+# torch>=2.1
+
+# Only needed for weight porting (conversion-time only):
+# torch>=2.1
+# safetensors
+
+# Only needed for keras_climate.weights.pretrained (downloading/reading
+# real checkpoints; conversion-time only):
+# torchvision>=0.16   # DeepLabV3+'s torchvision ResNet-50 ImageNet backbone
+# transformers>=4.30  # SegFormer's HuggingFace ADE20K checkpoint
+# pillow              # only needed for image I/O in your own inference code
+
+# Testing:
+# pytest>=7.0
