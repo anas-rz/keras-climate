@@ -11,7 +11,7 @@ encoder stages, upsample + skip connections in the decoder).
 
 import keras
 from keras import layers, ops
-from ..utils.layers import MLP, DropPath
+from keras_climate.utils.layers import MLP, DropPath
 
 
 class CuboidAttention(layers.Layer):

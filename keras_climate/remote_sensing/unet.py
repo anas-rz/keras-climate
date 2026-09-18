@@ -8,7 +8,7 @@ Supports an arbitrary number of input bands (in_channels), not just RGB.
 
 import keras
 from keras import layers
-from ..utils.layers import DoubleConv
+from keras_climate.utils.layers import DoubleConv
 
 
 def UNet(

@@ -7,10 +7,10 @@ import numpy as np
 import pytest
 import keras
 
-from .segformer import SegFormer, MIT_CONFIGS
-from ..weights import WeightConverter
-from ..weights.mappings import build_segformer_mapper, build_segformer_param_kind_map
-from ..weights.pretrained import segformer_b0_ade20k
+from keras_climate.remote_sensing.segformer import SegFormer, MIT_CONFIGS
+from keras_climate.weights import WeightConverter
+from keras_climate.weights.mappings import build_segformer_mapper, build_segformer_param_kind_map
+from keras_climate.weights.pretrained import segformer_b0_ade20k
 
 
 # --------------------------------------------------------------------------

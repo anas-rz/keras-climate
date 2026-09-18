@@ -18,7 +18,7 @@ attach your own head; use `SatMAE(...)` for MAE pretraining.
 import numpy as np
 import keras
 from keras import layers, ops
-from ..utils.layers import PatchEmbed2D, TransformerEncoderBlock, sincos_position_embedding_2d
+from keras_climate.utils.layers import PatchEmbed2D, TransformerEncoderBlock, sincos_position_embedding_2d
 
 
 class MaskingLayer(layers.Layer):

@@ -7,10 +7,10 @@ import numpy as np
 import pytest
 import keras
 
-from .deeplabv3plus import DeepLabV3Plus, deeplabv3plus_config
-from ..weights import WeightConverter
-from ..weights.mappings import build_deeplabv3plus_mapper
-from ..weights.pretrained import deeplabv3plus_resnet50_imagenet_backbone
+from keras_climate.foundation.deeplabv3plus import DeepLabV3Plus, deeplabv3plus_config
+from keras_climate.weights import WeightConverter
+from keras_climate.weights.mappings import build_deeplabv3plus_mapper
+from keras_climate.weights.pretrained import deeplabv3plus_resnet50_imagenet_backbone
 
 
 # --------------------------------------------------------------------------

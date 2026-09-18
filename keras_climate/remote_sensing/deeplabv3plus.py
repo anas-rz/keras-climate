@@ -9,7 +9,7 @@ imagery.
 
 import keras
 from keras import layers, ops
-from ..utils.layers import ConvBNAct, ASPP
+from keras_climate.utils.layers import ConvBNAct, ASPP
 
 
 def _bottleneck_block(x, filters, stride=1, dilation=1, downsample=False, name=""):

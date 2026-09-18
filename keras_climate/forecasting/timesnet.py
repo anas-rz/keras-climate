@@ -11,7 +11,7 @@ annual cycles).
 
 import keras
 from keras import layers, ops
-from .patchtst import RevIN
+from keras_climate.forecasting.patchtst import RevIN
 
 
 class InceptionBlockV1(layers.Layer):

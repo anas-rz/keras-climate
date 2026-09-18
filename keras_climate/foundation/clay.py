@@ -12,7 +12,7 @@ import math
 import numpy as np
 import keras
 from keras import layers, ops
-from ..utils.layers import PatchEmbed2D, TransformerEncoderBlock
+from keras_climate.utils.layers import PatchEmbed2D, TransformerEncoderBlock
 
 
 def fourier_encode(value, num_freqs=6):

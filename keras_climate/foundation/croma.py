@@ -13,7 +13,7 @@ convenience `CROMA(...)` model that returns unimodal + joint embeddings.
 
 import keras
 from keras import layers, ops
-from ..utils.layers import PatchEmbed2D, TransformerEncoderBlock
+from keras_climate.utils.layers import PatchEmbed2D, TransformerEncoderBlock
 
 
 class ModalityEncoder(keras.Model):

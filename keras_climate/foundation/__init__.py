@@ -1,7 +1,7 @@
-from .prithvi import PrithviEncoder, PrithviClassifier, PrithviSegmenter, PRITHVI_CONFIGS
-from .clay import ClayEncoder, ClayClassifier
-from .croma import CROMA, ModalityEncoder, CrossAttentionFusion
-from .anysat import AnySatEncoder, AnySatClassifier, ModalityPatchEmbed
+from keras_climate.foundation.prithvi import PrithviEncoder, PrithviClassifier, PrithviSegmenter, PRITHVI_CONFIGS
+from keras_climate.foundation.clay import ClayEncoder, ClayClassifier
+from keras_climate.foundation.croma import CROMA, ModalityEncoder, CrossAttentionFusion
+from keras_climate.foundation.anysat import AnySatEncoder, AnySatClassifier, ModalityPatchEmbed
 
 __all__ = [
     "PrithviEncoder", "PrithviClassifier", "PrithviSegmenter", "PRITHVI_CONFIGS",

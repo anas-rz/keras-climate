@@ -8,7 +8,7 @@ decode head. Strong general-purpose choice for satellite/aerial segmentation.
 
 import keras
 from keras import layers, ops
-from ..utils.layers import OverlapPatchEmbed, SegformerBlock, ConvBNAct
+from keras_climate.utils.layers import OverlapPatchEmbed, SegformerBlock, ConvBNAct
 
 
 MIT_CONFIGS = {

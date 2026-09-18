@@ -10,7 +10,7 @@ the forecast horizon.
 
 import keras
 from keras import layers, ops
-from ..utils.layers import TransformerEncoderBlock
+from keras_climate.utils.layers import TransformerEncoderBlock
 
 
 class RevIN(layers.Layer):

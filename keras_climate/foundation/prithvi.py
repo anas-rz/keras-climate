@@ -11,7 +11,7 @@ attach a segmentation/classification head to `PrithviEncoder`.
 import numpy as np
 import keras
 from keras import layers, ops
-from ..utils.layers import PatchEmbed3D, TransformerEncoderBlock, sincos_position_embedding
+from keras_climate.utils.layers import PatchEmbed3D, TransformerEncoderBlock, sincos_position_embedding
 
 
 PRITHVI_CONFIGS = {

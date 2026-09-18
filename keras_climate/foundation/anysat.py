@@ -13,7 +13,7 @@ comparable). This lets one model jointly consume, e.g., 10m Sentinel-2,
 
 import keras
 from keras import layers, ops
-from ..utils.layers import TransformerEncoderBlock, MLP
+from keras_climate.utils.layers import TransformerEncoderBlock, MLP
 
 
 class ModalityPatchEmbed(layers.Layer):

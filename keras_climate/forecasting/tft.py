@@ -11,7 +11,7 @@ drivers) and static metadata (e.g. station location/elevation).
 
 import keras
 from keras import layers, ops
-from ..utils.layers import GatedResidualNetwork
+from keras_climate.utils.layers import GatedResidualNetwork
 
 
 class VariableSelectionNetwork(layers.Layer):

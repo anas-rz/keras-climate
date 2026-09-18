@@ -7,10 +7,10 @@ import numpy as np
 import pytest
 import keras
 
-from .unet import UNet, unet_config
-from ..weights import WeightConverter
-from ..weights.mappings import build_unet_mapper
-from ..weights.pretrained import unet_carvana
+from keras_climate.remote_sensing.unet import UNet, unet_config
+from keras_climate.weights import WeightConverter
+from keras_climate.weights.mappings import build_unet_mapper
+from keras_climate.weights.pretrained import unet_carvana
 
 
 # --------------------------------------------------------------------------

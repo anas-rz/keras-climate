@@ -7,10 +7,10 @@ import numpy as np
 import pytest
 import keras
 
-from .satmae import SatMAE, SatMAEEncoder, SatMAEDecoder
-from ..weights import WeightConverter
-from ..weights.mappings import build_satmae_mapper
-from ..weights.pretrained import satmae_vit_base_mae
+from keras_climate.remote_sensing.satmae import SatMAE, SatMAEEncoder, SatMAEDecoder
+from keras_climate.weights import WeightConverter
+from keras_climate.weights.mappings import build_satmae_mapper
+from keras_climate.weights.pretrained import satmae_vit_base_mae
 
 
 # --------------------------------------------------------------------------
