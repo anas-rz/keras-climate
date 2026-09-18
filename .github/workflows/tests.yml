@@ -3,6 +3,9 @@ name: Tests
 on:
   push:
   pull_request:
+  schedule:
+    # Every Sunday at 06:00 UTC
+    - cron: "0 6 * * 0"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,13 +16,17 @@ jobs:
     name: pytest (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -27,20 +34,31 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
+      - name: Cache testmon database
+        uses: actions/cache@v4
+        with:
+          path: .testmondata
+          key: >
+            testmon-${{ runner.os }}-${{ matrix.python-version }}-${{ github.ref_name }}
+          restore-keys: |
+            testmon-${{ runner.os }}-${{ matrix.python-version }}-
+
       - name: Install package
         run: pip install -e .
 
       - name: Install test dependencies
         run: |
-          pip install pytest
+          pip install pytest pytest-testmon
           pip install tensorflow-cpu
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install einops
 
-      # `-m "not pretrained"` is also set as the default in pytest.ini, but
-      # pytest.ini is currently gitignored (not committed), so it's passed
-      # explicitly here too: the `pretrained` tests download real
-      # multi-hundred-MB checkpoints from the internet and are meant to be
-      # run deliberately (`pytest -m pretrained`), not on every push.
-      - name: Run tests
-        run: pytest -m "not pretrained" -v
+      - name: Run incremental tests (push/PR)
+        if: github.event_name != 'schedule'
+        run: |
+          pytest --testmon -m "not pretrained" -v
+
+      - name: Run full test suite (scheduled)
+        if: github.event_name == 'schedule'
+        run: |
+          pytest -m "not pretrained" -v
