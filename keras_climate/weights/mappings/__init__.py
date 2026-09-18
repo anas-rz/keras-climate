@@ -21,6 +21,9 @@ from keras_climate.weights.mappings.convlstm_mapping import (
 )
 from keras_climate.weights.mappings.earthformer_mapping import build_earthformer_mapper
 from keras_climate.weights.mappings.metnet_mapping import convert_metnet_state_dict, build_metnet_mapper
+from keras_climate.weights.mappings.patchtst_mapping import build_patchtst_mapper
+from keras_climate.weights.mappings.timesnet_mapping import build_timesnet_mapper
+from keras_climate.weights.mappings.tft_mapping import build_tft_mapper, convert_tft_lstm_state_dict
 
 __all__ = [
     "build_vit_mapper", "build_unet_mapper",
@@ -33,4 +36,7 @@ __all__ = [
     "convert_convlstm_stack_state_dict", "build_convlstm_identity_mapper",
     "build_earthformer_mapper",
     "convert_metnet_state_dict", "build_metnet_mapper",
+    "build_patchtst_mapper",
+    "build_timesnet_mapper",
+    "build_tft_mapper", "convert_tft_lstm_state_dict",
 ]

@@ -48,11 +48,13 @@ class InterpretableMultiHeadAttention(layers.Layer):
         self.num_heads = num_heads
         self.head_dim = d_model // num_heads
         self.d_model = d_model
-        self.q_layers = [layers.Dense(self.head_dim) for _ in range(num_heads)]
-        self.k_layers = [layers.Dense(self.head_dim) for _ in range(num_heads)]
-        self.v_layer = layers.Dense(self.head_dim)  # shared value projection
+        # Explicit names (as with GatedResidualNetwork above) - otherwise
+        # these auto-assign globally-incrementing, unreproducible names.
+        self.q_layers = [layers.Dense(self.head_dim, name=f"q{h}") for h in range(num_heads)]
+        self.k_layers = [layers.Dense(self.head_dim, name=f"k{h}") for h in range(num_heads)]
+        self.v_layer = layers.Dense(self.head_dim, name="v")  # shared value projection
         self.attn_drop = layers.Dropout(dropout)
-        self.out_proj = layers.Dense(d_model)
+        self.out_proj = layers.Dense(d_model, name="out_proj")
 
     def call(self, x, mask=None, training=False):
         v = self.v_layer(x)
@@ -98,8 +100,17 @@ def TemporalFusionTransformer(
     static_in = keras.Input((num_static_vars,), name="static_inputs")
 
     # --- static covariate encoder ---
+    # NOTE: the full TFT paper additionally computes a
+    # `static_context_selection` vector that conditions the
+    # variable-selection GRNs (each VSN's `flatten_grn` takes it as an extra
+    # context input) - `GatedResidualNetwork`/`VariableSelectionNetwork`
+    # here don't support an additional context input, so that piece is a
+    # deliberately out-of-scope simplification rather than implemented
+    # (there's no point constructing a GRN whose output would never be
+    # consumed: an un-consumed branch's weights don't even register as part
+    # of the Keras model - see the RevIN/positional-embedding bugs fixed in
+    # patchtst.py for the same underlying "dead branch" failure mode).
     static_embed = layers.Dense(hidden_dim, name="static_embed")(static_in)
-    static_context_selection = GatedResidualNetwork(hidden_dim, dropout, name="static_ctx_selection")(static_embed)
     static_context_enrichment = GatedResidualNetwork(hidden_dim, dropout, name="static_ctx_enrichment")(static_embed)
     static_context_h = GatedResidualNetwork(hidden_dim, dropout, name="static_ctx_h")(static_embed)
     static_context_c = GatedResidualNetwork(hidden_dim, dropout, name="static_ctx_c")(static_embed)

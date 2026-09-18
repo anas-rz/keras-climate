@@ -45,15 +45,19 @@ class FFTPeriodBlock(layers.Layer):
         # x: (B, L, D)
         B, L, D = ops.shape(x)[0], seq_len, x.shape[-1]
 
-        xf = ops.fft(ops.cast(x, "complex64"), axis=1) if hasattr(ops, "fft") else None
-        # keras.ops does not expose a generic fft; use per-backend real FFT via ops.rfft when available.
-        amp = ops.mean(ops.abs(ops.rfft(x)[0]), axis=(0, 2)) if hasattr(ops, "rfft") else None
+        # Static, pre-specified candidate periods (robust across backends
+        # and avoids dynamic top-k-dependent tensor shapes, which are
+        # awkward in a fully graph-traceable Keras layer - real TimesNet's
+        # `torch.topk` over FFT amplitude is inherently data-dependent).
+        # The *fusion weights* are still genuinely data-dependent, though:
+        # each candidate period's own FFT amplitude (averaged over
+        # channels), matching the paper's amplitude-weighted aggregation,
+        # rather than a uniform average across periods.
+        candidate_periods = self._candidate_periods(seq_len, self.top_k)
 
-        # Fallback: static, pre-specified candidate periods (robust across backends
-        # and avoids dynamic top-k-dependent tensor shapes, which are awkward in
-        # a fully graph-traceable Keras layer). This mirrors common TimesNet
-        # re-implementations that use a fixed period bank for deployment.
-        candidate_periods = self._candidate_periods(seq_len)
+        x_time_last = ops.transpose(x, (0, 2, 1))  # (B, D, L) - rfft acts on the last axis
+        real, imag = ops.rfft(x_time_last)  # each (B, D, L//2+1)
+        amplitude = ops.mean(ops.sqrt(ops.square(real) + ops.square(imag)), axis=1)  # (B, L//2+1)
 
         results = []
         weights = []
@@ -73,10 +77,12 @@ class FFTPeriodBlock(layers.Layer):
 
             out = ops.reshape(out, (B, pad_len, D))[:, :seq_len, :]
             results.append(out)
-            weights.append(ops.ones((B,)))  # uniform fusion weight fallback
+
+            freq_idx = min(seq_len // period, seq_len // 2)
+            weights.append(amplitude[:, freq_idx])  # (B,)
 
         stacked = ops.stack(results, axis=-1)  # (B, L, D, K)
-        w = ops.stack(weights, axis=-1)
+        w = ops.stack(weights, axis=-1)  # (B, K)
         w = ops.softmax(w, axis=-1)
         w = w[:, None, None, :]
         fused = ops.sum(stacked * w, axis=-1)
@@ -108,12 +114,12 @@ def TimesNet(
 
     revin = RevIN(name="revin") if use_revin else None
     if revin is not None:
-        x = revin.normalize(x)
+        x = revin(x, mode="norm")
 
     x = layers.Dense(d_model, name="value_embed")(x)
 
     for i in range(num_layers):
-        x = FFTPeriodBlock(d_model, d_ff, num_kernels, top_k, name=f"timesblock{i}")(x, seq_len)
+        x = FFTPeriodBlock(d_model, d_ff, num_kernels, top_k, name=f"timesblock{i}")(x, seq_len=seq_len)
         x = layers.LayerNormalization(epsilon=1e-6, name=f"norm{i}")(x)
 
     # predict_linear: project along the time axis from seq_len -> seq_len + pred_len
@@ -125,6 +131,6 @@ def TimesNet(
     out = layers.Lambda(lambda t: t[:, -pred_len:, :], name="slice_horizon")(out)
 
     if revin is not None:
-        out = revin.denormalize(out)
+        out = revin(out, mode="denorm")
 
     return keras.Model(inputs, out, name=name)

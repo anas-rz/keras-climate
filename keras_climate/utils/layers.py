@@ -75,12 +75,17 @@ class GatedResidualNetwork(layers.Layer):
         self.dropout = dropout
 
     def build(self, input_shape):
-        self.skip = layers.Dense(self.units) if input_shape[-1] != self.units else None
-        self.fc1 = layers.Dense(self.units, activation="elu")
-        self.fc2 = layers.Dense(self.units)
+        # Explicit names are required, not cosmetic: without them Keras
+        # auto-assigns globally-incrementing names ("dense_16", ...) that
+        # depend on how many other unnamed Dense/LayerNormalization layers
+        # were created earlier in the same process - since TFT builds many
+        # GRN instances, this makes weight-porting by name unreproducible.
+        self.skip = layers.Dense(self.units, name="skip") if input_shape[-1] != self.units else None
+        self.fc1 = layers.Dense(self.units, activation="elu", name="fc1")
+        self.fc2 = layers.Dense(self.units, name="fc2")
         self.drop = layers.Dropout(self.dropout)
-        self.gate = layers.Dense(self.units * 2)
-        self.norm = layers.LayerNormalization()
+        self.gate = layers.Dense(self.units * 2, name="gate")
+        self.norm = layers.LayerNormalization(name="norm")
         super().build(input_shape)
 
     def call(self, x, training=False):
