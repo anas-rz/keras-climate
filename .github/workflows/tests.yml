@@ -50,7 +50,7 @@ jobs:
         run: |
           pip install pytest pytest-testmon
           pip install tensorflow-cpu
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install einops
 
       - name: Run incremental tests (push/PR)
