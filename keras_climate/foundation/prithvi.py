@@ -11,7 +11,7 @@ attach a segmentation/classification head to `PrithviEncoder`.
 import numpy as np
 import keras
 from keras import layers, ops
-from keras_climate.utils.layers import PatchEmbed3D, TransformerEncoderBlock, sincos_position_embedding
+from keras_climate.utils.layers import PatchEmbed3D, TransformerEncoderBlock
 
 
 PRITHVI_CONFIGS = {
@@ -20,6 +20,48 @@ PRITHVI_CONFIGS = {
     "prithvi_300m": dict(embed_dim=1024, depth=24, num_heads=16, decoder_embed_dim=512,
                           decoder_depth=8, decoder_num_heads=16),
 }
+
+
+def _get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
+    """Matches the official Prithvi/MAE-ST `get_1d_sincos_pos_embed_from_grid`
+    exactly (needed bit-for-bit, since `pos_embed` ships as a checkpoint
+    buffer computed by this same formula)."""
+    assert embed_dim % 2 == 0
+    omega = np.arange(embed_dim // 2, dtype=np.float64)
+    omega /= embed_dim / 2.0
+    omega = 1.0 / 10000 ** omega
+    pos = pos.reshape(-1).astype(np.float64)
+    out = np.einsum("m,d->md", pos, omega)
+    return np.concatenate([np.sin(out), np.cos(out)], axis=1).astype(np.float32)
+
+
+def get_3d_sincos_pos_embed(embed_dim, grid_size, add_cls_token=False):
+    """Factorized 3D (t, h, w) sin-cos position embedding: separate 1D
+    sin-cos embeddings per axis, split `embed_dim` into w:h:t = 6:6:4
+    sixteenths and *concatenated* (not summed) along the feature axis -
+    matches the official Prithvi `get_3d_sincos_pos_embed` exactly (this is
+    a frozen/non-trainable buffer in the source checkpoint, so getting this
+    formula bit-exact is what lets the encoder's pos_embed be ported - or
+    equivalently, recomputed identically - without any learned weights of
+    its own)."""
+    assert embed_dim % 16 == 0
+    t_size, h_size, w_size = grid_size
+    w_embed_dim = embed_dim // 16 * 6
+    h_embed_dim = embed_dim // 16 * 6
+    t_embed_dim = embed_dim // 16 * 4
+
+    w_pos_embed = _get_1d_sincos_pos_embed_from_grid(w_embed_dim, np.arange(w_size))
+    h_pos_embed = _get_1d_sincos_pos_embed_from_grid(h_embed_dim, np.arange(h_size))
+    t_pos_embed = _get_1d_sincos_pos_embed_from_grid(t_embed_dim, np.arange(t_size))
+
+    w_pos_embed = np.tile(w_pos_embed, (t_size * h_size, 1))
+    h_pos_embed = np.tile(np.repeat(h_pos_embed, w_size, axis=0), (t_size, 1))
+    t_pos_embed = np.repeat(t_pos_embed, h_size * w_size, axis=0)
+
+    pos_embed = np.concatenate([w_pos_embed, h_pos_embed, t_pos_embed], axis=1)
+    if add_cls_token:
+        pos_embed = np.concatenate([np.zeros((1, embed_dim), dtype=np.float32), pos_embed], axis=0)
+    return pos_embed
 
 
 class PrithviEncoder(keras.Model):
@@ -39,16 +81,8 @@ class PrithviEncoder(keras.Model):
         self.cls_token = self.add_weight(shape=(1, 1, embed_dim), initializer="zeros",
                                           trainable=True, name="cls_token")
 
-        num_patches = self.t_grid * self.grid_size * self.grid_size
-        # Factorized spatiotemporal sin-cos position embedding: spatial (2D) x temporal (1D)
-        spatial_pos = sincos_position_embedding(self.grid_size * self.grid_size, embed_dim // 4 * 4)
-        temporal_pos = sincos_position_embedding(self.t_grid, embed_dim)
-        pos = np.zeros((num_patches, embed_dim), dtype=np.float32)
-        for t in range(self.t_grid):
-            for s in range(self.grid_size * self.grid_size):
-                pos[t * self.grid_size * self.grid_size + s] = temporal_pos[t] + np.pad(
-                    spatial_pos[s], (0, embed_dim - spatial_pos.shape[1]))
-        pos = np.concatenate([np.zeros((1, embed_dim), dtype=np.float32), pos], axis=0)
+        pos = get_3d_sincos_pos_embed(embed_dim, (self.t_grid, self.grid_size, self.grid_size),
+                                       add_cls_token=True)
         self.pos_embed = self.add_weight(shape=pos.shape, initializer=keras.initializers.Constant(pos),
                                           trainable=False, name="pos_embed")
 
