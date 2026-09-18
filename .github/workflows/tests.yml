@@ -1,0 +1,45 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Install test dependencies
+        run: |
+          pip install pytest
+          pip install tensorflow-cpu
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      # `-m "not pretrained"` is also set as the default in pytest.ini, but
+      # pytest.ini is currently gitignored (not committed), so it's passed
+      # explicitly here too: the `pretrained` tests download real
+      # multi-hundred-MB checkpoints from the internet and are meant to be
+      # run deliberately (`pytest -m pretrained`), not on every push.
+      - name: Run tests
+        run: pytest -m "not pretrained" -v
