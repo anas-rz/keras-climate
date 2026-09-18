@@ -33,7 +33,8 @@ keras_climate
 │   ├── earthformer          hierarchical cuboid-attention transformer
 │   ├── metnet               dilated-conv context tower + axial attention
 │   ├── fourcastnet          ViT + AFNO token-mixing global ERA5 forecaster
-│   └── climax               per-variable tokenization + variable-aggregation ViT
+│   ├── climax               per-variable tokenization + variable-aggregation ViT
+│   └── pangu_weather        3D Earth-Specific Transformer (windowed attn + U-Net)
 │
 ├── foundation             large pretrained Earth-observation foundation models
 │   ├── prithvi              spatiotemporal ViT-MAE for NASA HLS imagery

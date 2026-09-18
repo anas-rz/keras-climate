@@ -62,6 +62,11 @@ downloadable checkpoint that matches it exactly:
     official ClimaX checkpoint - see `weather/climax.py`'s module
     docstring and `weights/mappings/climax_mapping.py`'s note on this
     checkpoint's `channel_*` vs the GitHub source's `var_*` naming).
+  - `pangu_weather_24`: exact architecture + checkpoint match (a clean
+    PyTorch conversion of Huawei's official Pangu-Weather ONNX release -
+    **BY-NC-SA 4.0, non-commercial use only** - see
+    `weather/pangu_weather.py`'s module docstring on its memory/backend
+    requirements and the input-preprocessing scope boundary).
 
 FourCastNet v2 (SFNO) is deliberately not implemented: it replaces AFNO's
 planar FFT with a genuine Spherical Harmonic Transform on the sphere,
@@ -110,6 +115,7 @@ architecture.
 
 import os
 import urllib.request
+import zipfile
 
 import numpy as np
 
@@ -122,6 +128,7 @@ from keras_climate.foundation.prithvi import PRITHVI_CONFIGS
 from keras_climate.foundation.croma import CROMA
 from keras_climate.weather.fourcastnet import FourCastNet
 from keras_climate.weather.climax import ClimaX
+from keras_climate.weather.pangu_weather import PanguWeather
 from keras_climate.weights.converter import WeightConverter, load_torch_state_dict_as_numpy
 from keras_climate.weights.mappings import (
     build_unet_mapper,
@@ -144,6 +151,8 @@ from keras_climate.weights.mappings import (
     convert_fourcastnet_state_dict,
     load_fourcastnet_checkpoint,
     build_climax_mapper,
+    build_pangu_weather_mapper,
+    convert_pangu_weather_state_dict,
 )
 
 DEFAULT_CACHE_DIR = os.environ.get(
@@ -461,6 +470,77 @@ def climax_1_40625deg(cache_dir=None, strict=True):
     state_dict = load_torch_state_dict_as_numpy(path, key_prefix_strip="net.")
     mapper = build_climax_mapper(num_vars=num_vars, depth=8, decoder_depth=2)
     report = WeightConverter(model, state_dict, mapper).convert(strict=strict, verbose=True)
+    return model, report
+
+
+def pangu_weather_24(cache_dir=None, strict=True):
+    """`PanguWeather` (24-hour forecast lead time, the full released
+    config: 721x1440 grid, dims=(192,384,384,192), depths=(2,6,6,2)) -
+    a clean PyTorch conversion of Huawei's official ONNX release, from
+    github.com/zhaoshan2/pangu-pytorch's HuggingFace dataset
+    (`zhaoshan/pangu_pytorch`, `pretrained_model.zip`, containing both the
+    original `.onnx` and the already-converted `.pth` this loader uses).
+
+    **BY-NC-SA 4.0 - non-commercial use only** (the underlying weights are
+    Huawei's, regardless of which conversion path produced this specific
+    file).
+
+    Building the model and loading these weights works on any Keras
+    backend, but actually *calling* the returned model (a full forward
+    pass over the real 721x1440x13-level grid) is memory-heavy enough
+    that it reliably completes only under the PyTorch backend
+    (`KERAS_BACKEND=torch`, with `torch.no_grad()`) in a typical
+    development environment - the TensorFlow backend's graph-tracing
+    retains enough intermediate state to exhaust memory on a machine with
+    tens of GB free, even though this is architecturally the same
+    computation either way (see `weather/pangu_weather.py`'s module
+    docstring on why the attention step alone needs multiple GB per
+    block). This mirrors the real official model's own resource
+    requirements (typically run on a GPU with substantial memory).
+
+    Inputs the returned model expects: see `PanguWeather`'s docstring -
+    already-normalized, already-concatenated 6-channel upper-air and
+    7-channel surface tensors (this loader does not fetch or apply the
+    official `aux_data.zip` normalization statistics/masks/constant
+    field, which are a separate, non-parameter data-preprocessing
+    concern - see `weather/pangu_weather.py`'s module docstring)."""
+    zip_path = _download(
+        "https://huggingface.co/datasets/zhaoshan/pangu_pytorch/resolve/main/pretrained_model.zip",
+        "pangu_pretrained_model.zip", cache_dir,
+    )
+    extract_dir = os.path.join(os.path.dirname(zip_path), "pangu_pretrained_model")
+    pth_path = os.path.join(extract_dir, "pretrained_model", "pangu_weather_24_torch.pth")
+    if not os.path.exists(pth_path):
+        with zipfile.ZipFile(zip_path) as zf:
+            zf.extractall(extract_dir)
+
+    # `PanguWeather()` is a pure Functional-API `keras.Model` (built from
+    # explicit `keras.Input` calls), so its weights already exist right
+    # after construction - unlike a subclassed model with a lazy
+    # `build()`, no throwaway forward pass is needed just to materialize
+    # them. Skipping it matters here specifically: an extra full-
+    # resolution forward pass roughly doubles this function's peak/
+    # cumulative memory footprint (see module docstring on why a single
+    # pass alone already needs several GB).
+    model = PanguWeather()
+
+    import torch
+    ckpt = torch.load(pth_path, map_location="cpu", weights_only=False)
+    state_dict = {k: v.detach().numpy() for k, v in ckpt["model"].items()}
+    state_dict = convert_pangu_weather_state_dict(state_dict)
+
+    mapper = build_pangu_weather_mapper(depths=(2, 6, 6, 2))
+    # `attn_mask` buffers are derived, non-trainable constants (see
+    # `pangu_weather.py`'s `EarthSpecificBlock`) with no checkpoint
+    # counterpart by design - `strict=True` can only mean "every *other*
+    # weight matched", not "zero missing".
+    report = WeightConverter(model, state_dict, mapper).convert(strict=False, verbose=True)
+    expected_missing = {k for k in report["missing_in_source"] if k.endswith("attn_mask")}
+    if strict and (set(report["missing_in_source"]) - expected_missing or report["unused_source_keys"]):
+        raise ValueError(
+            f"Strict conversion failed: {len(report['missing_in_source'])} missing "
+            f"(beyond the expected attn_mask buffers), {len(report['unused_source_keys'])} unused."
+        )
     return model, report
 
 
