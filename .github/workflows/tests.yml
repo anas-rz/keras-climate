@@ -35,6 +35,7 @@ jobs:
           pip install pytest
           pip install tensorflow-cpu
           pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install einops
 
       # `-m "not pretrained"` is also set as the default in pytest.ini, but
       # pytest.ini is currently gitignored (not committed), so it's passed
