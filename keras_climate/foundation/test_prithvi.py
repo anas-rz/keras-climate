@@ -159,7 +159,7 @@ def test_real_pretrained_prithvi_eo_100m_checkpoint():
     `pytest -m pretrained` (network + ~450MB download, cached after the
     first run)."""
     pytest.importorskip("torch")
-    from ..weights.pretrained import prithvi_eo_100m
+    from keras_climate.weights.pretrained import prithvi_eo_100m
 
     encoder, report = prithvi_eo_100m()
     assert not report["missing_in_source"]

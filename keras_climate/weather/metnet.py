@@ -94,12 +94,23 @@ def MetNet(
     lead_time_input = keras.Input(shape=(), dtype="int32", name="lead_time_idx")
 
     # --- per-frame conv stem + downsample (patchify to a manageable grid) ---
+    # Every layer wrapped in `TimeDistributed` below gets an explicit inner
+    # `name=` - otherwise Keras auto-assigns globally-incrementing names
+    # ("conv2d", "batch_normalization", ...) that depend on how many other
+    # unnamed layers of that type exist earlier in the same process, which
+    # makes weight-porting by name unreproducible.
+    # padding="same" would pad asymmetrically (or by the wrong total
+    # amount) for a strided conv like this one - explicit symmetric
+    # padding (matching PyTorch's conventional `padding=kernel//2`) is
+    # needed for faithful weight porting from a real checkpoint (see
+    # `ConvBNAct` in utils/layers.py for the fuller explanation).
+    x = layers.TimeDistributed(layers.ZeroPadding2D(1), name="stem_pad")(inputs)
     x = layers.TimeDistributed(
-        layers.Conv2D(base_filters, 3, strides=downsample_factor, padding="same"),
+        layers.Conv2D(base_filters, 3, strides=downsample_factor, padding="valid", name="conv"),
         name="stem",
-    )(inputs)
-    x = layers.TimeDistributed(layers.BatchNormalization(), name="stem_bn")(x)
-    x = layers.TimeDistributed(layers.Activation("relu"), name="stem_act")(x)
+    )(x)
+    x = layers.TimeDistributed(layers.BatchNormalization(name="bn"), name="stem_bn")(x)
+    x = layers.TimeDistributed(layers.Activation("relu", name="act"), name="stem_act")(x)
 
     # --- temporal encoding: collapse T_in frames with a ConvLSTM ---
     x = layers.ConvLSTM2D(base_filters, 3, padding="same", return_sequences=False,
@@ -119,8 +130,15 @@ def MetNet(
         x = AxialAttention2D(attn_dim, num_heads, name=f"axial_attn{i}")(x)
 
     # --- upsample back to input resolution and predict ---
+    # kernel_size == strides (2, not the more common 3x3) is deliberate:
+    # transposed-conv padding alignment between "same"-style frameworks and
+    # an explicit-padding PyTorch reference is not standardized the way
+    # regular-conv padding is (see ConvBNAct's docstring for the regular
+    # case), but kernel==stride with zero padding is unambiguous on both
+    # sides - the same convention already proven exact for UNet's
+    # transposed convs when porting a real checkpoint.
     for i in range(int(downsample_factor).bit_length() - 1):
-        x = layers.Conv2DTranspose(attn_dim // 2, 3, strides=2, padding="same",
+        x = layers.Conv2DTranspose(attn_dim // 2, 2, strides=2, padding="same",
                                     name=f"upsample{i}")(x)
         x = layers.BatchNormalization(name=f"upsample_bn{i}")(x)
         x = layers.Activation("relu", name=f"upsample_relu{i}")(x)

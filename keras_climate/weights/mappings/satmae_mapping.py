@@ -33,7 +33,7 @@ whatever specific checkpoint you're porting from.
 
 import re
 
-from .vit_mapping import build_vit_mapper
+from keras_climate.weights.mappings.vit_mapping import build_vit_mapper
 
 
 EXTRA_EMBED_KEYS = {

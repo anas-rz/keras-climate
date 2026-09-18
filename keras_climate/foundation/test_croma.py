@@ -168,7 +168,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             joint = self.joint_encoder(sar_tok, opt_tok, bias)
             return sar_repr, opt_repr, joint
 
-    from .croma import get_2d_alibi
+    from keras_climate.foundation.croma import get_2d_alibi
 
     torch.manual_seed(0)
     torch_model = TorchCROMA(dim, depth, num_heads, patch_size)
@@ -191,7 +191,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     # `CROMA(...)` only builds the two hardcoded (dim, depth) presets
     # ("base"/"large"); assemble a small model with the same test dims
     # directly from its building blocks instead.
-    from .croma import ModalityEncoder, CrossAttentionFusion, gap_ffn
+    from keras_climate.foundation.croma import ModalityEncoder, CrossAttentionFusion, gap_ffn
     sar_in = keras.Input((img_size, img_size, 2), name="sar")
     opt_in = keras.Input((img_size, img_size, 12), name="optical")
     sar_encoder = ModalityEncoder(dim, depth // 2, 2, patch_size, num_heads, name="s1_encoder")
@@ -236,7 +236,7 @@ def test_real_pretrained_croma_base_checkpoint():
     it loads cleanly. Run explicitly with `pytest -m pretrained` (network +
     ~740MB download, cached after the first run)."""
     pytest.importorskip("torch")
-    from ..weights.pretrained import croma_base
+    from keras_climate.weights.pretrained import croma_base
 
     model, report = croma_base()
     assert not report["missing_in_source"]

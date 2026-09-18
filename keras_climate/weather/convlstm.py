@@ -7,7 +7,7 @@ Uses Keras's built-in ConvLSTM2D cells.
 """
 
 import keras
-from keras import layers
+from keras import layers, ops
 
 
 def ConvLSTMNowcaster(
@@ -19,42 +19,56 @@ def ConvLSTMNowcaster(
     name="convlstm_nowcaster",
 ):
     """Encoder-forecaster ConvLSTM. Encodes the input sequence with stacked
-    ConvLSTM2D layers, then unrolls `pred_steps` future frames by feeding
-    the last hidden state's prediction back as the next input (teacher-free
-    autoregressive rollout at inference; for training you may instead
-    supply teacher-forced targets by wrapping this model)."""
+    ConvLSTM2D layers, then unrolls `pred_steps` future frames autoregressively:
+    each predicted frame (in pixel/output-channel space) is fed back as the
+    next step's input, through the *same* decoder ConvLSTM2D layers reused
+    across every step (a recurrent decoder is only recurrent if its weights
+    are shared across time - a fresh layer per step would silently multiply
+    the parameter count by `pred_steps` and prevent the model from learning
+    a single, time-shared dynamical update rule)."""
 
     inputs = keras.Input(shape=input_shape, name="frames")
     x = inputs
 
     states = []
     for i, f in enumerate(filters):
-        return_seq = True
         x, h, c = layers.ConvLSTM2D(
-            f, kernel_size, padding="same", return_sequences=return_seq,
+            f, kernel_size, padding="same", return_sequences=True,
             return_state=True, name=f"encoder_convlstm{i}",
         )(x)
         x = layers.BatchNormalization(name=f"encoder_bn{i}")(x)
-        states.append((h, c))
+        states.append([h, c])
 
-    # Take the last encoded frame as the seed for autoregressive rollout.
-    last_frame = layers.Lambda(lambda t: t[:, -1:, :, :, :], name="last_frame")(x)
+    # Decoder cells + read-out head: created once, reused at every rollout step.
+    decoder_convlstms = [
+        layers.ConvLSTM2D(f, kernel_size, padding="same", return_sequences=True,
+                           return_state=True, name=f"decoder_convlstm{i}")
+        for i, f in enumerate(filters)
+    ]
+    decoder_bns = [layers.BatchNormalization(name=f"decoder_bn{i}") for i in range(len(filters))]
+    head = layers.Conv3D(out_channels, 1, activation="sigmoid", name="frame_head")
+
+    # Seed the rollout with a zero frame in pixel/output-channel space, so
+    # every step (including the first) feeds the shared decoder layers a
+    # consistently-shaped input - matching what every later step feeds back
+    # (the previous predicted frame), rather than mixing an abstract
+    # encoder-feature-space seed with pixel-space frames thereafter.
+    H, W = input_shape[1], input_shape[2]
+    cur = layers.Lambda(
+        lambda t: ops.zeros((ops.shape(t)[0], 1, H, W, out_channels), dtype=t.dtype),
+        name="zero_seed",
+    )(inputs)
 
     outputs = []
-    cur = last_frame
     cur_states = states
     for step in range(pred_steps):
         new_states = []
         h = cur
-        for i, f in enumerate(filters):
-            h, hs, cs = layers.ConvLSTM2D(
-                f, kernel_size, padding="same", return_sequences=True,
-                return_state=True, name=f"decoder_convlstm{i}_step{step}",
-            )(h, initial_state=cur_states[i])
-            h = layers.BatchNormalization(name=f"decoder_bn{i}_step{step}")(h)
-            new_states.append((hs, cs))
-        frame = layers.Conv3D(out_channels, 1, activation="sigmoid",
-                               name=f"frame_head_step{step}")(h)
+        for i in range(len(filters)):
+            h, hs, cs = decoder_convlstms[i](h, initial_state=cur_states[i])
+            h = decoder_bns[i](h)
+            new_states.append([hs, cs])
+        frame = head(h)
         outputs.append(frame)
         cur = frame
         cur_states = new_states

@@ -124,7 +124,13 @@ def Earthformer(
     T_in, H, W, C_in = input_shape
     inputs = keras.Input(shape=input_shape, name="frames")
 
-    x = layers.TimeDistributed(layers.Conv2D(base_dim, 3, padding="same"), name="stem")(inputs)
+    # Every `Conv2D`/`Conv2DTranspose` wrapped in `TimeDistributed` below is
+    # given an explicit inner `name=` - without one, Keras auto-assigns
+    # globally-incrementing names ("conv2d", "conv2d_1", ...) that depend on
+    # how many other unnamed Conv2D layers were created earlier in the same
+    # process, making weight-porting by name unreproducible.
+    x = layers.TimeDistributed(layers.Conv2D(base_dim, 3, padding="same", name="conv"),
+                                name="stem")(inputs)
 
     skips = []
     dim = base_dim
@@ -132,16 +138,18 @@ def Earthformer(
         x = _stage(x, dim, num_heads, depth, [cuboid_size], name=f"enc_stage{stage_i}")
         skips.append(x)
         if stage_i < len(stage_depths) - 1:
-            x = layers.TimeDistributed(layers.Conv2D(dim * 2, 3, strides=2, padding="same"),
-                                        name=f"downsample{stage_i}")(x)
+            x = layers.TimeDistributed(
+                layers.Conv2D(dim * 2, 3, strides=2, padding="same", name="conv"),
+                name=f"downsample{stage_i}")(x)
             dim *= 2
 
     for stage_i in reversed(range(len(stage_depths) - 1)):
         dim //= 2
-        x = layers.TimeDistributed(layers.Conv2DTranspose(dim, 3, strides=2, padding="same"),
-                                    name=f"upsample{stage_i}")(x)
+        x = layers.TimeDistributed(
+            layers.Conv2DTranspose(dim, 3, strides=2, padding="same", name="conv"),
+            name=f"upsample{stage_i}")(x)
         x = layers.Concatenate(axis=-1, name=f"skip_concat{stage_i}")([x, skips[stage_i]])
-        x = layers.TimeDistributed(layers.Conv2D(dim, 1), name=f"skip_proj{stage_i}")(x)
+        x = layers.TimeDistributed(layers.Conv2D(dim, 1, name="conv"), name=f"skip_proj{stage_i}")(x)
         x = _stage(x, dim, num_heads, stage_depths[stage_i], [cuboid_size], name=f"dec_stage{stage_i}")
 
     # Project the T_in encoded frames to pred_steps output frames along time,

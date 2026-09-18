@@ -21,7 +21,7 @@ not the official public checkpoint.
 
 import re
 
-from .vit_mapping import build_vit_mapper
+from keras_climate.weights.mappings.vit_mapping import build_vit_mapper
 
 
 def build_anysat_mapper(modalities, keras_prefix="anysat_encoder"):
