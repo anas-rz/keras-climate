@@ -169,3 +169,23 @@ def test_real_pretrained_prithvi_eo_100m_checkpoint():
     num_patches = 3 * (224 // 16) ** 2
     assert out.shape == (1, num_patches + 1, 768)
     assert np.isfinite(out).all()
+
+
+@pytest.mark.pretrained
+def test_real_pretrained_prithvi_eo_v2_300m_checkpoint():
+    """Downloads the real `ibm-nasa-geospatial/Prithvi-EO-2.0-300M`
+    checkpoint (embed_dim=1024, depth=24) and confirms the encoder loads
+    cleanly. Run explicitly with `pytest -m pretrained` (network +
+    ~1.33GB download, cached after the first run)."""
+    pytest.importorskip("torch")
+    from keras_climate.weights.pretrained import prithvi_eo_v2_300m
+
+    num_frames = 4
+    encoder, report = prithvi_eo_v2_300m(num_frames=num_frames)
+    assert not report["missing_in_source"]
+
+    x = np.random.rand(1, num_frames, 224, 224, 6).astype("float32")
+    out = keras.ops.convert_to_numpy(encoder(x, training=False))
+    num_patches = num_frames * (224 // 16) ** 2
+    assert out.shape == (1, num_patches + 1, 1024)
+    assert np.isfinite(out).all()

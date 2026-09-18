@@ -6,6 +6,17 @@ Harmonized Landsat-Sentinel (HLS) imagery, using 3D (tubelet) patch
 embedding over a short temporal stack (typically 3 timesteps) of 6-band
 multispectral imagery. Downstream tasks (e.g. burn-scar or flood mapping)
 attach a segmentation/classification head to `PrithviEncoder`.
+
+Prithvi-EO-2.0 (the 2024 successor, `prithvi_eo_v2_300m`/`_600m` below)
+reuses this exact same `PrithviEncoder` architecture unchanged - same
+patch embedding, same factorized 3D sin-cos positional embedding, same
+ViT block - just at different embed_dim/depth/num_heads/patch_size/
+num_frames, so no new model code is needed for its base (non-"-TL")
+checkpoint variants (see `weights/pretrained.py`'s `prithvi_eo_v2_300m`
+loader). The "-TL" (Temporal+Location) variants additionally add a
+`TemporalEncoder`/`LocationEncoder` (each just one small learned/fixed
+per-channel scale tensor encoding acquisition timestamp/lat-lon) that
+this module does not yet implement.
 """
 
 import numpy as np
@@ -19,6 +30,11 @@ PRITHVI_CONFIGS = {
                           decoder_depth=8, decoder_num_heads=16),
     "prithvi_300m": dict(embed_dim=1024, depth=24, num_heads=16, decoder_embed_dim=512,
                           decoder_depth=8, decoder_num_heads=16),
+    # Prithvi-EO-2.0 (see module docstring) - same architecture, larger.
+    "prithvi_eo_v2_300m": dict(embed_dim=1024, depth=24, num_heads=16, decoder_embed_dim=512,
+                                decoder_depth=8, decoder_num_heads=16, patch_size=16),
+    "prithvi_eo_v2_600m": dict(embed_dim=1280, depth=32, num_heads=16, decoder_embed_dim=512,
+                                decoder_depth=8, decoder_num_heads=16, patch_size=14),
 }
 
 

@@ -341,6 +341,64 @@ class PatchEmbed3D(layers.Layer):
         return x, T, H, W
 
 
+def _ifft_last_axis(re, im, n):
+    """1D inverse complex FFT over the last axis, via the conjugate
+    identity `ifft(X) = conj(fft(conj(X))) / N` - `keras.ops` only
+    exposes a forward 1D `fft`, not `ifft`."""
+    f_re, f_im = ops.fft((re, -im))
+    return f_re / n, -f_im / n
+
+
+def rfft2_hw(x):
+    """2D real FFT over axes (1, 2) of a `(B, H, W, C)` tensor - matches
+    `torch.fft.rfft2(x, dim=(1, 2))`/`np.fft.rfft2(x, axes=(1, 2))`
+    exactly (rfft applied to the last-listed axis W, complex fft to H),
+    decomposed into the 1D `ops.rfft`/`ops.fft` primitives `keras.ops`
+    actually provides (no native `rfft2`). Returns `(real, imag)`, each
+    `(B, H, W//2+1, C)`."""
+    x_p = ops.transpose(x, (0, 3, 1, 2))  # (B, C, H, W)
+    re, im = ops.rfft(x_p)  # rfft over W (last axis) -> (B, C, H, W//2+1)
+    re_t = ops.transpose(re, (0, 1, 3, 2))  # (B, C, W//2+1, H)
+    im_t = ops.transpose(im, (0, 1, 3, 2))
+    re2, im2 = ops.fft((re_t, im_t))  # complex fft over H (now last axis)
+    re2 = ops.transpose(re2, (0, 1, 3, 2))  # (B, C, H, W//2+1)
+    im2 = ops.transpose(im2, (0, 1, 3, 2))
+    re2 = ops.transpose(re2, (0, 2, 3, 1))  # (B, H, W//2+1, C)
+    im2 = ops.transpose(im2, (0, 2, 3, 1))
+    return re2, im2
+
+
+def irfft2_hw(re, im, H, W):
+    """Inverse of `rfft2_hw`: `(real, imag)` each `(B, H, W//2+1, C)` ->
+    real `(B, H, W, C)`."""
+    re_p = ops.transpose(re, (0, 3, 1, 2))  # (B, C, H, W//2+1)
+    im_p = ops.transpose(im, (0, 3, 1, 2))
+    re_t = ops.transpose(re_p, (0, 1, 3, 2))  # (B, C, W//2+1, H)
+    im_t = ops.transpose(im_p, (0, 1, 3, 2))
+    re1, im1 = _ifft_last_axis(re_t, im_t, H)  # inverse fft over H
+    re1 = ops.transpose(re1, (0, 1, 3, 2))  # (B, C, H, W//2+1)
+    im1 = ops.transpose(im1, (0, 1, 3, 2))
+    out = ops.irfft((re1, im1), fft_length=W)  # inverse rfft over W -> real
+    return ops.transpose(out, (0, 2, 3, 1))  # (B, H, W, C)
+
+
+def unpatchify_2d(x, grid_h, grid_w, patch_size, out_channels, name="unpatchify"):
+    """Inverse of a non-overlapping 2D patchify: `(B, grid_h, grid_w,
+    patch_size*patch_size*out_channels)` -> `(B, grid_h*patch_size,
+    grid_w*patch_size, out_channels)`. Used by AFNO-based models
+    (`keras_climate.operators.afno`, `keras_climate.weather.fourcastnet`)
+    to map per-patch predictions back to full-resolution pixels."""
+    out_h, out_w = grid_h * patch_size, grid_w * patch_size
+
+    def _unpatchify(t):
+        B = ops.shape(t)[0]
+        t = ops.reshape(t, (B, grid_h, grid_w, patch_size, patch_size, out_channels))
+        t = ops.transpose(t, (0, 1, 3, 2, 4, 5))
+        return ops.reshape(t, (B, out_h, out_w, out_channels))
+
+    return layers.Lambda(_unpatchify, output_shape=(out_h, out_w, out_channels), name=name)(x)
+
+
 def sincos_position_embedding(length, dim):
     """Fixed (non-learned) 1D sin-cos positional embedding, numpy, shape (length, dim)."""
     position = np.arange(length)[:, None]

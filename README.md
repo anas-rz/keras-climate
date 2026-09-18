@@ -13,23 +13,39 @@ keras_climate
 │   ├── unet               classic encoder-decoder segmentation
 │   ├── deeplabv3plus       dilated-ResNet + ASPP segmentation
 │   ├── segformer           MiT transformer backbone + all-MLP decode head
-│   └── satmae              ViT masked-autoencoder for multispectral/temporal imagery
+│   ├── satmae              ViT masked-autoencoder for multispectral/temporal imagery
+│   ├── scalemae            ground-sample-distance-aware ViT-MAE encoder
+│   ├── ringmo              Swin masked-image-modeling backbone (PI-Mask)
+│   ├── ssl4eo              self-supervised (MoCo v2) Sentinel-1/2 ResNet-50
+│   └── satclip             spherical-harmonics + SIREN location encoder
 │
 ├── forecasting            multivariate time-series forecasting
 │   ├── patchtst            channel-independent patch transformer
 │   ├── timesnet             FFT period discovery + Inception 2D blocks
-│   └── tft                  Temporal Fusion Transformer (LSTM + attention)
+│   ├── tft                  Temporal Fusion Transformer (LSTM + attention)
+│   ├── dlinear              trend/seasonal decomposition + linear heads
+│   ├── nbeats               doubly-residual fully-connected basis stacks
+│   ├── informer             ProbSparse* attention + generative decoder
+│   └── autoformer           series decomposition + FFT auto-correlation
 │
 ├── weather                spatiotemporal nowcasting / weather models
 │   ├── convlstm             stacked ConvLSTM encoder-forecaster
 │   ├── earthformer          hierarchical cuboid-attention transformer
-│   └── metnet               dilated-conv context tower + axial attention
+│   ├── metnet               dilated-conv context tower + axial attention
+│   ├── fourcastnet          ViT + AFNO token-mixing global ERA5 forecaster
+│   └── climax               per-variable tokenization + variable-aggregation ViT
 │
 ├── foundation             large pretrained Earth-observation foundation models
 │   ├── prithvi              spatiotemporal ViT-MAE for NASA HLS imagery
 │   ├── clay                 sensor-agnostic ViT with band/geo metadata embeddings
 │   ├── croma                dual SAR+optical encoder with cross-attention fusion
 │   └── anysat                any-resolution / any-modality ViT
+│
+├── operators              neural operator learning (PDE surrogate modeling)
+│   ├── afno                 Adaptive Fourier Neural Operator token-mixer
+│   ├── fno                  Fourier Neural Operator (spectral convs)
+│   ├── deeponet             branch/trunk-net operator learning
+│   └── uno                  U-shaped Neural Operator (spectral U-Net)
 │
 ├── utils/layers.py         shared building blocks (attention, patch embed, conv blocks)
 │

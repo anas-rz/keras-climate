@@ -40,6 +40,57 @@ downloadable checkpoint that matches it exactly:
   - `croma_base`/`croma_large`: exact architecture + checkpoint match (the
     paper authors' own released checkpoint, both modalities + the joint
     fusion encoder).
+  - `scalemae_vitlarge_fmow`: exact architecture + checkpoint match
+    (TorchGeo's clean re-export of the official facebookresearch/scale-mae
+    fMoW-RGB ViT-L/16 encoder; the decoder/FPN half of the official full
+    checkpoint isn't implemented here - see `remote_sensing/scalemae.py`).
+  - `ssl4eo_resnet50_moco`: exact architecture + checkpoint match
+    (TorchGeo's clean re-export of the official zhu-xlab/SSL4EO-S12
+    MoCo v2 ResNet-50, 13-band Sentinel-2 stem).
+  - `satclip_location_encoder_resnet18_l10`: exact architecture + checkpoint
+    match (Microsoft's own official `SatCLIP-ResNet18-L10`; only the
+    location-encoder half, not the paired image encoder - see
+    `remote_sensing/satclip.py`'s module docstring on the reverse-engineered
+    spherical-harmonics normalization).
+  - `prithvi_eo_v2_300m`: exact architecture + checkpoint match (IBM/NASA's
+    official `Prithvi-EO-2.0-300M`, encoder only, base non-"-TL" variant -
+    see `foundation/prithvi.py`'s module docstring).
+  - `fourcastnet_backbone`: exact architecture + checkpoint match (NVIDIA's
+    official FourCastNet backbone, mirrored non-interactively at NERSC -
+    see `weather/fourcastnet.py`'s module docstring).
+  - `climax_1_40625deg`: exact architecture + checkpoint match (Microsoft's
+    official ClimaX checkpoint - see `weather/climax.py`'s module
+    docstring and `weights/mappings/climax_mapping.py`'s note on this
+    checkpoint's `channel_*` vs the GitHub source's `var_*` naming).
+
+FourCastNet v2 (SFNO) is deliberately not implemented: it replaces AFNO's
+planar FFT with a genuine Spherical Harmonic Transform on the sphere,
+which is the model's defining feature (not an implementation detail) and
+would require reproducing a correctness-critical numerical transform
+library (`torch-harmonics`) from scratch to load its real checkpoint
+faithfully - out of scope for this pass.
+
+None of the `operators` models (AFNO, FNO, DeepONet, UNO) have a loader
+here, despite two of them having a real checkpoint that exists somewhere:
+  - AFNO: the only released AFNO weights are FourCastNet's own (already
+    covered by `fourcastnet_backbone` above) - no standalone, task-
+    agnostic AFNO checkpoint exists.
+  - FNO: a real checkpoint exists (`pdebench-fno-audit/fno-weights`), but
+    its state_dict reveals a modified block structure (`spectral`/
+    `pointwise`/`local_conv`/a scalar `gate`) that doesn't match the
+    original paper's code, PDEBench's own repo, or any indexed version of
+    `neuraloperator` - its exact combination formula is unverifiable from
+    any public source (see `operators/fno.py`'s module docstring).
+  - DeepONet: a real checkpoint exists (`BGLab/DeepONet-FlowBench-FPO`),
+    but its branch net is preceded by a custom multi-scale Inception-style
+    CNN feature extractor whose exact wiring can't be determined from
+    tensor shapes/names alone (see `operators/deeponet.py`'s module
+    docstring).
+  - UNO: no checkpoint exists anywhere (neither the paper's code nor
+    `neuraloperator` ships one).
+All four are validated only against from-scratch synthetic PyTorch
+references of their own architectures (see each module's docstring and
+`weights/mappings/{afno,fno,deeponet,uno}_mapping.py`).
 
 Clay and AnySat have no loader here: Clay's official checkpoint is ~5GB
 (impractical to fetch/validate in most environments), and AnySat's
@@ -49,6 +100,12 @@ architecture than `AnySatEncoder` implements (see
 validated against synthetic references matching their respective
 mappings' assumed naming (see `foundation/test_clay.py` /
 `foundation/test_anysat.py`), just not against the real public checkpoints.
+
+RingMo has no loader either: no official or credible unofficial
+checkpoint has ever been publicly released for it at all (see
+`remote_sensing/ringmo.py`'s module docstring) - it's validated only
+against a from-scratch synthetic reference of this repo's own
+architecture.
 """
 
 import os
@@ -57,8 +114,14 @@ import urllib.request
 import numpy as np
 
 from keras_climate.remote_sensing import UNet, DeepLabV3Plus, SegFormer, MIT_CONFIGS, SatMAEEncoder, SatMAEDecoder
+from keras_climate.remote_sensing.scalemae import ScaleMAEEncoder
+from keras_climate.remote_sensing.ssl4eo import SSL4EOResNet50
+from keras_climate.remote_sensing.satclip import SatCLIPLocationEncoder
 from keras_climate.foundation import PrithviEncoder
+from keras_climate.foundation.prithvi import PRITHVI_CONFIGS
 from keras_climate.foundation.croma import CROMA
+from keras_climate.weather.fourcastnet import FourCastNet
+from keras_climate.weather.climax import ClimaX
 from keras_climate.weights.converter import WeightConverter, load_torch_state_dict_as_numpy
 from keras_climate.weights.mappings import (
     build_unet_mapper,
@@ -71,6 +134,16 @@ from keras_climate.weights.mappings import (
     load_croma_checkpoint,
     convert_croma_state_dict,
     build_croma_identity_mapper,
+    build_scalemae_mapper,
+    SCALEMAE_SKIP_PATTERNS,
+    build_ssl4eo_mapper,
+    load_satclip_checkpoint,
+    build_satclip_location_mapper,
+    SATCLIP_SKIP_PATTERNS,
+    build_fourcastnet_mapper,
+    convert_fourcastnet_state_dict,
+    load_fourcastnet_checkpoint,
+    build_climax_mapper,
 )
 
 DEFAULT_CACHE_DIR = os.environ.get(
@@ -224,6 +297,171 @@ def prithvi_eo_100m(img_size=224, cache_dir=None, strict=True):
         skip_patterns=[r"^decoder"],
     ).convert(strict=strict, verbose=True)
     return encoder, report
+
+
+def scalemae_vitlarge_fmow(img_size=224, cache_dir=None, strict=True):
+    """`ScaleMAEEncoder` (ViT-L/16, embed_dim=1024, depth=24, heads=16),
+    pretrained on fMoW-RGB (800 epochs) - TorchGeo's clean re-export of the
+    official facebookresearch/scale-mae checkpoint
+    (`vit_large_patch16_224_fmow_rgb_scalemae`), which uses plain timm ViT
+    key names (unlike the official full checkpoint, which also bundles the
+    Laplacian-pyramid FPN decoder this repo doesn't implement - see module
+    docstring)."""
+    path = _download(
+        "https://huggingface.co/isaaccorley/vit_large_patch16_224_fmow_rgb_scalemae/resolve/main/"
+        "vit_large_patch16_224_fmow_rgb_scalemae-386989c9.pth",
+        "vit_large_patch16_224_fmow_rgb_scalemae-386989c9.pth", cache_dir,
+    )
+    encoder = ScaleMAEEncoder(img_size=img_size, patch_size=16, in_chans=3, embed_dim=1024,
+                               depth=24, num_heads=16)
+    encoder([np.zeros((1, img_size, img_size, 3), dtype="float32"), np.zeros((1,), dtype="float32")])
+
+    state_dict = load_torch_state_dict_as_numpy(path)
+    mapper = build_scalemae_mapper()
+    # `pos_embed`/`decoder_pos_embed` are dead weight in the source
+    # checkpoint (see module docstring) and have no Keras counterpart -
+    # skip rather than treat as "unused". Conversely,
+    # `pos_embed/{grid_h,grid_w,omega}` are non-trainable buffers on the
+    # *Keras* side, derived purely from config (see
+    # `GSDPositionalEmbedding`) - they have no source-key counterpart by
+    # design, so `strict=True` can only ever mean "every *other* weight
+    # matched", not "zero missing".
+    report = WeightConverter(
+        encoder, state_dict, mapper,
+        skip_patterns=SCALEMAE_SKIP_PATTERNS,
+    ).convert(strict=False, verbose=True)
+    expected_missing = {
+        "scalemae_encoder/pos_embed/grid_h",
+        "scalemae_encoder/pos_embed/grid_w",
+        "scalemae_encoder/pos_embed/omega",
+    }
+    if strict and (set(report["missing_in_source"]) - expected_missing or report["unused_source_keys"]):
+        raise ValueError(
+            f"Strict conversion failed: {len(report['missing_in_source'])} missing "
+            f"(beyond the expected GSD buffers), {len(report['unused_source_keys'])} unused."
+        )
+    return encoder, report
+
+
+def ssl4eo_resnet50_moco(input_shape=(224, 224, 13), cache_dir=None, strict=True):
+    """`SSL4EOResNet50`, self-supervised (MoCo v2) pretrained on 13-band
+    Sentinel-2 L1C imagery - TorchGeo's clean re-export of the official
+    zhu-xlab/SSL4EO-S12 checkpoint (`resnet50_sentinel2_all_moco`; the
+    official repo's own release is Google-Drive-hosted and unsuitable for
+    non-interactive download). Backbone-only (no `fc` head)."""
+    path = _download(
+        "https://hf.co/torchgeo/resnet50_sentinel2_all_moco/resolve/"
+        "da4f3c9dbe09272eb902f3b37f46635fa4726879/resnet50_sentinel2_all_moco-df8b932e.pth",
+        "resnet50_sentinel2_all_moco-df8b932e.pth", cache_dir,
+    )
+    model = SSL4EOResNet50(input_shape=input_shape)
+    model(np.zeros((1,) + input_shape, dtype="float32"))  # build
+
+    state_dict = load_torch_state_dict_as_numpy(path)
+    mapper = build_ssl4eo_mapper(layer_counts=(3, 4, 6, 3))
+    report = WeightConverter(
+        model, state_dict, mapper,
+        skip_patterns=[r"num_batches_tracked$"],
+    ).convert(strict=strict, verbose=True)
+    return model, report
+
+
+def satclip_location_encoder_resnet18_l10(cache_dir=None, strict=True):
+    """`SatCLIPLocationEncoder` (legendre_polys=10, dim_hidden=512,
+    num_hidden_layers=2, embed_dim=256), the exact SirenNet weights from
+    Microsoft's official `microsoft/SatCLIP-ResNet18-L10` checkpoint (the
+    smallest released variant) - only the location-encoder half is ported,
+    not the paired ResNet-18 image encoder (see module docstring)."""
+    path = _download(
+        "https://huggingface.co/microsoft/SatCLIP-ResNet18-L10/resolve/main/satclip-resnet18-l10.ckpt",
+        "satclip-resnet18-l10.ckpt", cache_dir,
+    )
+    model = SatCLIPLocationEncoder(legendre_polys=10, dim_hidden=512, num_hidden_layers=2, embed_dim=256)
+    model(np.zeros((1, 2), dtype="float32"))  # build
+
+    state_dict = load_satclip_checkpoint(path)
+    mapper = build_satclip_location_mapper(num_hidden_layers=2)
+    report = WeightConverter(
+        model, state_dict, mapper,
+        skip_patterns=SATCLIP_SKIP_PATTERNS,
+    ).convert(strict=strict, verbose=True)
+    return model, report
+
+
+def prithvi_eo_v2_300m(img_size=224, num_frames=4, cache_dir=None, strict=True):
+    """`PrithviEncoder` at Prithvi-EO-2.0's 300M config (embed_dim=1024,
+    depth=24, num_heads=16) - IBM/NASA's official
+    `ibm-nasa-geospatial/Prithvi-EO-2.0-300M` checkpoint (encoder half
+    only; base non-"-TL" variant, architecturally identical to Prithvi-EO
+    -1.0 otherwise - see `foundation/prithvi.py`'s module docstring)."""
+    path = _download(
+        "https://huggingface.co/ibm-nasa-geospatial/Prithvi-EO-2.0-300M/resolve/main/"
+        "Prithvi_EO_V2_300M.pt",
+        "Prithvi_EO_V2_300M.pt", cache_dir,
+    )
+    cfg = PRITHVI_CONFIGS["prithvi_eo_v2_300m"]
+    encoder = PrithviEncoder(img_size=img_size, patch_size=cfg["patch_size"], num_frames=num_frames,
+                              tubelet_size=1, in_chans=6, embed_dim=cfg["embed_dim"],
+                              depth=cfg["depth"], num_heads=cfg["num_heads"], name="encoder")
+    encoder(np.zeros((1, num_frames, img_size, img_size, 6), dtype="float32"))  # build
+
+    # Same "encoder." nesting as Prithvi-EO-1.0's full-MAE checkpoint.
+    state_dict = load_torch_state_dict_as_numpy(path, key_prefix_strip="encoder.")
+    mapper = build_vit_mapper("encoder")
+    report = WeightConverter(
+        encoder, state_dict, mapper,
+        param_kind_map={"encoder/patch_embed/proj/kernel": "conv3d_kernel"},
+        skip_patterns=[r"^decoder"],
+    ).convert(strict=strict, verbose=True)
+    return encoder, report
+
+
+def fourcastnet_backbone(cache_dir=None, strict=True):
+    """`FourCastNet` at its full released config (720x1440 grid,
+    patch_size=8, embed_dim=768, depth=12, 20 ERA5 variables) - NVIDIA's
+    official checkpoint, mirrored non-interactively at NERSC (the
+    project's own Globus link requires an account). Requires
+    `ruamel.yaml` installed in addition to `torch` (see
+    `load_fourcastnet_checkpoint`'s docstring) and downloads ~855MB."""
+    path = _download(
+        "https://portal.nersc.gov/project/m4134/FCN_weights_v0/backbone.ckpt",
+        "fourcastnet_backbone.ckpt", cache_dir,
+    )
+    img_size, patch_size = (720, 1440), 8
+    grid_h, grid_w = img_size[0] // patch_size, img_size[1] // patch_size
+    model = FourCastNet(img_size=img_size, patch_size=patch_size, in_chans=20, out_chans=20,
+                         embed_dim=768, depth=12, num_blocks=8)
+    model(np.zeros((1,) + img_size + (20,), dtype="float32"))  # build
+
+    raw_state_dict = load_fourcastnet_checkpoint(path)
+    state_dict = convert_fourcastnet_state_dict(raw_state_dict, grid_h, grid_w)
+    mapper = build_fourcastnet_mapper(depth=12)
+    report = WeightConverter(model, state_dict, mapper).convert(strict=strict, verbose=True)
+    return model, report
+
+
+def climax_1_40625deg(cache_dir=None, strict=True):
+    """`ClimaX` at its 1.40625-degree config (128x256 grid, patch_size=4,
+    48 variables, embed_dim=1024, depth=8) - Microsoft's official
+    checkpoint, hosted directly on HuggingFace (`microsoft/ClimaX`,
+    `1.40625deg.ckpt`). Note: the released checkpoint's per-variable-
+    aggregation parameters are named `channel_embed`/`channel_query`/
+    `channel_agg`, not the `var_*` naming in the current GitHub source -
+    see `weights/mappings/climax_mapping.py`'s module docstring."""
+    path = _download(
+        "https://huggingface.co/microsoft/ClimaX/resolve/main/1.40625deg.ckpt",
+        "climax_1_40625deg.ckpt", cache_dir,
+    )
+    img_size, patch_size, num_vars = (128, 256), 4, 48
+    model = ClimaX(img_size=img_size, patch_size=patch_size, num_vars=num_vars,
+                    embed_dim=1024, depth=8, decoder_depth=2, num_heads=16)
+    model([np.zeros((1,) + img_size + (num_vars,), dtype="float32"),
+           np.zeros((1, 1), dtype="float32")])  # build
+
+    state_dict = load_torch_state_dict_as_numpy(path, key_prefix_strip="net.")
+    mapper = build_climax_mapper(num_vars=num_vars, depth=8, decoder_depth=2)
+    report = WeightConverter(model, state_dict, mapper).convert(strict=strict, verbose=True)
+    return model, report
 
 
 def croma_base(img_size=120, cache_dir=None, strict=True):

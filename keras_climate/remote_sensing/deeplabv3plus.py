@@ -41,15 +41,22 @@ def _resnet_stage(x, filters, num_blocks, stride, dilation, name):
 def resnet_backbone(x, layer_counts=(3, 4, 23, 3), output_stride=16, name="resnet"):
     """A ResNet-50/101-style backbone with atrous convolutions in the last
     stage(s) so the overall output stride matches DeepLab's requirements
-    (8 or 16), returning (low_level_feat, high_level_feat)."""
+    (8 or 16), returning (low_level_feat, high_level_feat). `output_stride
+    =32` gives the standard (non-atrous, non-dilated) torchvision ResNet
+    stride pattern instead, for plain classification-style backbones
+    (e.g. `keras_climate.remote_sensing.ssl4eo`) rather than DeepLab's
+    dense-prediction one."""
     if output_stride == 16:
         strides = [1, 2, 2, 1]
         dilations = [1, 1, 1, 2]
     elif output_stride == 8:
         strides = [1, 2, 1, 1]
         dilations = [1, 1, 2, 4]
+    elif output_stride == 32:
+        strides = [1, 2, 2, 2]
+        dilations = [1, 1, 1, 1]
     else:
-        raise ValueError("output_stride must be 8 or 16")
+        raise ValueError("output_stride must be 8, 16 or 32")
 
     x = ConvBNAct(64, 7, strides=2, name=f"{name}_stem")(x)
     # padding="same" would pad asymmetrically here (see ConvBNAct); the

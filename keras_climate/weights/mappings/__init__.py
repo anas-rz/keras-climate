@@ -24,6 +24,26 @@ from keras_climate.weights.mappings.metnet_mapping import convert_metnet_state_d
 from keras_climate.weights.mappings.patchtst_mapping import build_patchtst_mapper
 from keras_climate.weights.mappings.timesnet_mapping import build_timesnet_mapper
 from keras_climate.weights.mappings.tft_mapping import build_tft_mapper, convert_tft_lstm_state_dict
+from keras_climate.weights.mappings.scalemae_mapping import build_scalemae_mapper, SCALEMAE_SKIP_PATTERNS
+from keras_climate.weights.mappings.ringmo_mapping import (
+    build_ringmo_encoder_mapper, build_ringmo_decoder_mapper, build_ringmo_mapper,
+)
+from keras_climate.weights.mappings.ssl4eo_mapping import build_ssl4eo_mapper
+from keras_climate.weights.mappings.satclip_mapping import (
+    load_satclip_checkpoint, build_satclip_location_mapper, SATCLIP_SKIP_PATTERNS,
+)
+from keras_climate.weights.mappings.dlinear_mapping import build_dlinear_mapper
+from keras_climate.weights.mappings.nbeats_mapping import build_nbeats_mapper
+from keras_climate.weights.mappings.informer_mapping import build_informer_mapper
+from keras_climate.weights.mappings.autoformer_mapping import build_autoformer_mapper
+from keras_climate.weights.mappings.afno_mapping import build_afno_mapper
+from keras_climate.weights.mappings.fourcastnet_mapping import (
+    build_fourcastnet_mapper, convert_fourcastnet_state_dict, load_fourcastnet_checkpoint,
+)
+from keras_climate.weights.mappings.climax_mapping import build_climax_mapper
+from keras_climate.weights.mappings.fno_mapping import build_fno_mapper
+from keras_climate.weights.mappings.uno_mapping import build_uno_mapper
+from keras_climate.weights.mappings.deeponet_mapping import build_deeponet_mapper
 
 __all__ = [
     "build_vit_mapper", "build_unet_mapper",
@@ -39,4 +59,18 @@ __all__ = [
     "build_patchtst_mapper",
     "build_timesnet_mapper",
     "build_tft_mapper", "convert_tft_lstm_state_dict",
+    "build_scalemae_mapper", "SCALEMAE_SKIP_PATTERNS",
+    "build_ringmo_encoder_mapper", "build_ringmo_decoder_mapper", "build_ringmo_mapper",
+    "build_ssl4eo_mapper",
+    "load_satclip_checkpoint", "build_satclip_location_mapper", "SATCLIP_SKIP_PATTERNS",
+    "build_dlinear_mapper",
+    "build_nbeats_mapper",
+    "build_informer_mapper",
+    "build_autoformer_mapper",
+    "build_afno_mapper",
+    "build_fourcastnet_mapper", "convert_fourcastnet_state_dict", "load_fourcastnet_checkpoint",
+    "build_climax_mapper",
+    "build_fno_mapper",
+    "build_uno_mapper",
+    "build_deeponet_mapper",
 ]
