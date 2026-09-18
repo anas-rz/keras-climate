@@ -33,6 +33,22 @@ downloadable checkpoint that matches it exactly:
     plain ViT-MAE, so Meta AI's official ImageNet-1k MAE checkpoint is
     used as the best publicly-available stand-in for validating that
     shared core end-to-end.
+  - `prithvi_eo_100m`: exact architecture + checkpoint match (IBM/NASA's
+    own `Prithvi-EO-1.0-100M` release, encoder only - the MAE decoder
+    portion of the checkpoint is skipped since this repo doesn't implement
+    a Prithvi decoder).
+  - `croma_base`/`croma_large`: exact architecture + checkpoint match (the
+    paper authors' own released checkpoint, both modalities + the joint
+    fusion encoder).
+
+Clay and AnySat have no loader here: Clay's official checkpoint is ~5GB
+(impractical to fetch/validate in most environments), and AnySat's
+official checkpoint uses a substantially more complex, config-driven
+architecture than `AnySatEncoder` implements (see
+`keras_climate.foundation.anysat`'s module docstring) - both are still
+validated against synthetic references matching their respective
+mappings' assumed naming (see `foundation/test_clay.py` /
+`foundation/test_anysat.py`), just not against the real public checkpoints.
 """
 
 import os
@@ -40,15 +56,21 @@ import urllib.request
 
 import numpy as np
 
-from ..remote_sensing import UNet, DeepLabV3Plus, SegFormer, MIT_CONFIGS, SatMAEEncoder, SatMAEDecoder
-from .converter import WeightConverter, load_torch_state_dict_as_numpy
-from .mappings import (
+from keras_climate.remote_sensing import UNet, DeepLabV3Plus, SegFormer, MIT_CONFIGS, SatMAEEncoder, SatMAEDecoder
+from keras_climate.foundation import PrithviEncoder
+from keras_climate.foundation.croma import CROMA
+from keras_climate.weights.converter import WeightConverter, load_torch_state_dict_as_numpy
+from keras_climate.weights.mappings import (
     build_unet_mapper,
     build_resnet_backbone_mapper,
     build_segformer_mapper,
     build_segformer_param_kind_map,
     convert_hf_segformer_state_dict,
     build_satmae_mapper,
+    build_vit_mapper,
+    load_croma_checkpoint,
+    convert_croma_state_dict,
+    build_croma_identity_mapper,
 )
 
 DEFAULT_CACHE_DIR = os.environ.get(
@@ -174,3 +196,58 @@ def satmae_vit_base_mae(img_size=224, cache_dir=None, strict=True):
         skip_patterns=[r"^cls_token$", r"^pos_embed$", r"^patch_embed", r"^blocks\.", r"^norm\.(weight|bias)$"],
     ).convert(strict=strict, verbose=True)
     return encoder, decoder, {"encoder": enc_report, "decoder": dec_report}
+
+
+def prithvi_eo_100m(img_size=224, cache_dir=None, strict=True):
+    """`PrithviEncoder` (embed_dim=768, depth=12, num_heads=12), pretrained
+    on NASA HLS imagery - IBM/NASA's official
+    `ibm-nasa-geospatial/Prithvi-EO-1.0-100M` checkpoint
+    (`Prithvi_EO_V1_100M.pt`, encoder half only)."""
+    path = _download(
+        "https://huggingface.co/ibm-nasa-geospatial/Prithvi-EO-1.0-100M/resolve/main/"
+        "Prithvi_EO_V1_100M.pt",
+        "Prithvi_EO_V1_100M.pt", cache_dir,
+    )
+    encoder = PrithviEncoder(img_size=img_size, patch_size=16, num_frames=3, tubelet_size=1,
+                              in_chans=6, embed_dim=768, depth=12, num_heads=12, name="encoder")
+    encoder(np.zeros((1, 3, img_size, img_size, 6), dtype="float32"))  # build
+
+    # The checkpoint is the *full* PrithviMAE (encoder+decoder); the
+    # encoder half is nested under an "encoder." prefix matching this
+    # `encoder` submodel's own name, so it's stripped then re-added by
+    # `build_vit_mapper("encoder")` rather than left in place.
+    state_dict = load_torch_state_dict_as_numpy(path, key_prefix_strip="encoder.")
+    mapper = build_vit_mapper("encoder")
+    report = WeightConverter(
+        encoder, state_dict, mapper,
+        param_kind_map={"encoder/patch_embed/proj/kernel": "conv3d_kernel"},
+        skip_patterns=[r"^decoder"],
+    ).convert(strict=strict, verbose=True)
+    return encoder, report
+
+
+def croma_base(img_size=120, cache_dir=None, strict=True):
+    """`CROMA(size="base")`, pretrained on paired Sentinel-1/Sentinel-2
+    imagery - the paper authors' own released `antofuller/CROMA`
+    checkpoint (`CROMA_base.pt`)."""
+    return _croma(size="base", img_size=img_size, cache_dir=cache_dir, strict=strict)
+
+
+def croma_large(img_size=120, cache_dir=None, strict=True):
+    """`CROMA(size="large")` - `antofuller/CROMA`'s `CROMA_large.pt`."""
+    return _croma(size="large", img_size=img_size, cache_dir=cache_dir, strict=strict)
+
+
+def _croma(size, img_size, cache_dir, strict):
+    filename = f"CROMA_{size}.pt"
+    path = _download(f"https://huggingface.co/antofuller/CROMA/resolve/main/{filename}",
+                      filename, cache_dir)
+    depth = {"base": 12, "large": 24}[size]
+
+    model = CROMA(img_size=img_size, patch_size=8, size=size)
+    flat = load_croma_checkpoint(path)
+    translated = convert_croma_state_dict(flat, encoder_depth=depth)
+    report = WeightConverter(model, translated, build_croma_identity_mapper()).convert(
+        strict=strict, verbose=True
+    )
+    return model, report

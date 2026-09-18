@@ -25,15 +25,15 @@ import argparse
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Dict, List
 
-from .converter import WeightConverter, load_torch_state_dict_as_numpy, load_safetensors_as_numpy
-from .mappings import (
+from keras_climate.weights.converter import WeightConverter, load_torch_state_dict_as_numpy, load_safetensors_as_numpy
+from keras_climate.weights.mappings import (
     build_vit_mapper, build_unet_mapper, build_deeplabv3plus_mapper,
     build_segformer_mapper, build_segformer_param_kind_map, build_satmae_mapper,
 )
 
-from ..remote_sensing import UNet, DeepLabV3Plus, SegFormer, SatMAE, MIT_CONFIGS
-from ..forecasting import PatchTST
-from ..foundation import PrithviClassifier
+from keras_climate.remote_sensing import UNet, DeepLabV3Plus, SegFormer, SatMAE, MIT_CONFIGS
+from keras_climate.forecasting import PatchTST
+from keras_climate.foundation import PrithviClassifier
 
 
 @dataclass
@@ -92,10 +92,18 @@ MODEL_REGISTRY = {
     ),
     "prithvi_100m": ModelSpec(
         build_fn=lambda: PrithviClassifier(variant="prithvi_100m", num_classes=1000),
-        name_map_fn=lambda: build_vit_mapper("prithvi_classifier/encoder"),
-        loader="safetensors",
+        # The real checkpoint (e.g. ibm-nasa-geospatial/Prithvi-EO-1.0-100M's
+        # Prithvi_EO_V1_100M.pt) is a raw PyTorch .pt of the *full* PrithviMAE
+        # (encoder+decoder), with the encoder nested under an "encoder."
+        # prefix - stripped here so the bare `blocks.*`/`cls_token`/...
+        # keys match `build_vit_mapper`'s expected (unprefixed) naming, then
+        # re-added via `keras_prefix="encoder"` to match `PrithviClassifier`'s
+        # own `encoder` submodel name.
+        name_map_fn=lambda: build_vit_mapper("encoder"),
+        loader="torch",
+        key_prefix_strip="encoder.",
         param_kind_map={
-            "prithvi_classifier/encoder/patch_embed/proj/kernel": "conv3d_kernel",
+            "encoder/patch_embed/proj/kernel": "conv3d_kernel",
         },
     ),
 }

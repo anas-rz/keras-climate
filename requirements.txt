@@ -16,5 +16,10 @@ numpy
 # transformers>=4.30  # SegFormer's HuggingFace ADE20K checkpoint
 # pillow              # only needed for image I/O in your own inference code
 
+# Only needed to run the weight-port round-trip tests' PyTorch reference
+# implementations (test-time only, e.g. keras_climate/foundation/test_*.py):
+# einops
+# timm
+
 # Testing:
 # pytest>=7.0
