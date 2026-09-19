@@ -1,14 +1,3 @@
-"""
-Mapping for `keras_climate.operators.deeponet.DeepONet`, assuming a
-source checkpoint using this repo's own naming (no verifiable real
-checkpoint exists for this exact architecture - see `deeponet.py`'s
-module docstring):
-
-    branch_fc{i}.{weight,bias}
-    trunk_fc{i}.{weight,bias}
-    bias                                   (raw scalar parameter)
-"""
-
 import re
 
 

@@ -1,12 +1,3 @@
-"""
-keras_climate.remote_sensing.deeplabv3plus
---------------------------------------------
-DeepLabV3+ (Chen et al. 2018): dilated-ResNet backbone + ASPP + light
-decoder with a low-level-feature skip connection. Commonly used for
-land-cover classification and semantic segmentation of aerial/satellite
-imagery.
-"""
-
 import keras
 from keras import layers, ops
 from keras_climate.utils.layers import ConvBNAct, ASPP
@@ -39,13 +30,6 @@ def _resnet_stage(x, filters, num_blocks, stride, dilation, name):
 
 
 def resnet_backbone(x, layer_counts=(3, 4, 23, 3), output_stride=16, name="resnet"):
-    """A ResNet-50/101-style backbone with atrous convolutions in the last
-    stage(s) so the overall output stride matches DeepLab's requirements
-    (8 or 16), returning (low_level_feat, high_level_feat). `output_stride
-    =32` gives the standard (non-atrous, non-dilated) torchvision ResNet
-    stride pattern instead, for plain classification-style backbones
-    (e.g. `keras_climate.remote_sensing.ssl4eo`) rather than DeepLab's
-    dense-prediction one."""
     if output_stride == 16:
         strides = [1, 2, 2, 1]
         dilations = [1, 1, 1, 2]
@@ -59,14 +43,11 @@ def resnet_backbone(x, layer_counts=(3, 4, 23, 3), output_stride=16, name="resne
         raise ValueError("output_stride must be 8, 16 or 32")
 
     x = ConvBNAct(64, 7, strides=2, name=f"{name}_stem")(x)
-    # padding="same" would pad asymmetrically here (see ConvBNAct); the
-    # reference torchvision resnet stem uses `nn.MaxPool2d(3, stride=2,
-    # padding=1)`, a symmetric pad of 1 on each side.
     x = layers.ZeroPadding2D(1, name=f"{name}_stem_pool_pad")(x)
     x = layers.MaxPooling2D(3, strides=2, padding="valid", name=f"{name}_stem_pool")(x)
 
     x = _resnet_stage(x, 64, layer_counts[0], strides[0], dilations[0], f"{name}_stage1")
-    low_level_feat = x  # stride-4 features for the decoder skip connection
+    low_level_feat = x
 
     x = _resnet_stage(x, 128, layer_counts[1], strides[1], dilations[1], f"{name}_stage2")
     x = _resnet_stage(x, 256, layer_counts[2], strides[2], dilations[2], f"{name}_stage3")
@@ -78,7 +59,7 @@ def resnet_backbone(x, layer_counts=(3, 4, 23, 3), output_stride=16, name="resne
 def DeepLabV3Plus(
     input_shape=(512, 512, 3),
     num_classes=1,
-    backbone_layers=(3, 4, 23, 3),  # ResNet-101; use (3,4,6,3) for ResNet-50
+    backbone_layers=(3, 4, 23, 3),
     output_stride=16,
     aspp_filters=256,
     decoder_filters=48,

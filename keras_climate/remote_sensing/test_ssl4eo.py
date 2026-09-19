@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.remote_sensing.ssl4eo` (SSL4EOResNet50).
-
-Run with: pytest keras_climate/remote_sensing/test_ssl4eo.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -12,10 +7,6 @@ from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_ssl4eo_mapper
 
 
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
-
 def test_builds_and_runs():
     model = SSL4EOResNet50(input_shape=(64, 64, 13))
     x = np.random.randn(2, 64, 64, 13).astype("float32")
@@ -24,19 +15,10 @@ def test_builds_and_runs():
 
 
 def test_thirteen_band_stem():
-    """Regression check: the stem conv must accept 13 input channels
-    (Sentinel-2 L1C), not the usual 3-channel ImageNet stem."""
     model = SSL4EOResNet50(input_shape=(32, 32, 13))
     stem_conv = model.get_layer("backbone_stem").conv
     assert stem_conv.kernel.shape[2] == 13
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a standard torchvision-style
-# ResNet-50 reference (13-channel stem), matching the real SSL4EO-S12
-# checkpoint's own naming (`build_resnet_backbone_mapper`, shared with
-# DeepLabV3+'s backbone).
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -64,7 +46,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         state_dict[k] = v.detach().numpy()
 
     keras_model = SSL4EOResNet50(input_shape=(64, 64, 13))
-    keras_model(np.zeros((1, 64, 64, 13), dtype="float32"))  # build
+    keras_model(np.zeros((1, 64, 64, 13), dtype="float32"))
 
     mapper = build_ssl4eo_mapper(layer_counts=(3, 4, 6, 3))
     report = WeightConverter(keras_model, state_dict, mapper).convert(strict=True, verbose=False)
@@ -73,9 +55,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     x_np = np.random.randn(1, 13, 64, 64).astype("float32")
     with torch.no_grad():
-        # torchvision's ResNet.forward always runs avgpool+fc; replicate
-        # just the conv backbone to compare against the Keras
-        # feature-extractor model (which stops at the final conv stage).
         x = torch_model.conv1(torch.from_numpy(x_np))
         x = torch_model.bn1(x)
         x = torch_model.relu(x)
@@ -95,10 +74,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
 @pytest.mark.pretrained
 def test_real_pretrained_ssl4eo_resnet50_moco():
-    """Downloads the real official SSL4EO-S12 MoCo v2 ResNet-50 checkpoint
-    (TorchGeo's clean re-export) and confirms it loads cleanly. Run
-    explicitly with `pytest -m pretrained` (network + ~90MB download,
-    cached after the first run)."""
     pytest.importorskip("torch")
     from keras_climate.weights.pretrained import ssl4eo_resnet50_moco
 

@@ -1,20 +1,3 @@
-"""
-keras_climate.remote_sensing.satmae
---------------------------------------
-SatMAE (Cong et al. 2022): a Masked Autoencoder ViT specialized for
-satellite imagery, with two notable variants this module supports:
-
-  * "temporal": groups multi-date image stacks and adds temporal position
-    encodings (for Sentinel/Planet time series).
-  * "multispectral": encodes each spectral group (e.g. RGB / NIR / SWIR)
-    with its own positional+channel embedding before merging into one
-    ViT token sequence.
-
-Both share the same ViT-MAE encoder/decoder backbone below. For downstream
-tasks (classification/segmentation), use `SatMAEEncoder(...)` alone and
-attach your own head; use `SatMAE(...)` for MAE pretraining.
-"""
-
 import numpy as np
 import keras
 from keras import layers, ops
@@ -22,9 +5,6 @@ from keras_climate.utils.layers import PatchEmbed2D, TransformerEncoderBlock, si
 
 
 class MaskingLayer(layers.Layer):
-    """Random patch masking for MAE pretraining. At call time, shuffles
-    tokens, keeps the first (1 - mask_ratio) fraction, and returns the
-    kept tokens plus the info needed to unshuffle in the decoder."""
 
     def __init__(self, mask_ratio=0.75, **kwargs):
         super().__init__(**kwargs)
@@ -54,10 +34,6 @@ class MaskingLayer(layers.Layer):
 
 
 class SatMAEEncoder(keras.Model):
-    """ViT encoder shared by both SatMAE variants. Accepts either a plain
-    (H, W, C) image, or a (num_groups, H, W, C) grouped-spectral stack when
-    `mode="multispectral"`, or a (T, H, W, C) stack when `mode="temporal"`.
-    """
 
     def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768,
                  depth=12, num_heads=12, mlp_ratio=4.0, mode="single",
@@ -70,10 +46,6 @@ class SatMAEEncoder(keras.Model):
         self.num_groups = num_groups
         self.num_frames = num_frames
 
-        # norm=False: the standard ViT/MAE patch embedding has no
-        # LayerNorm after the patch-projection conv - the first LayerNorm
-        # a token sees is `blocks[0].norm1` - so a source MAE/SatMAE
-        # checkpoint has no corresponding weights for one either.
         self.patch_embed = PatchEmbed2D(patch_size, embed_dim, norm=False, name="patch_embed")
         self.cls_token = self.add_weight(shape=(1, 1, embed_dim), initializer="zeros",
                                           trainable=True, name="cls_token")
@@ -106,7 +78,6 @@ class SatMAEEncoder(keras.Model):
         if self.mode == "single":
             tokens = self._embed_single(x)
         elif self.mode == "multispectral":
-            # x: (B, num_groups, H, W, C_per_group)
             group_tokens = []
             for g in range(self.num_groups):
                 t = self._embed_single(x[:, g])
@@ -114,7 +85,6 @@ class SatMAEEncoder(keras.Model):
                 group_tokens.append(t)
             tokens = ops.concatenate(group_tokens, axis=1)
         elif self.mode == "temporal":
-            # x: (B, T, H, W, C)
             frame_tokens = []
             for t_idx in range(self.num_frames):
                 t = self._embed_single(x[:, t_idx])
@@ -142,8 +112,6 @@ class SatMAEEncoder(keras.Model):
 
 
 class SatMAEDecoder(keras.Model):
-    """Lightweight MAE decoder: reconstructs masked patches from visible
-    encoder tokens + mask tokens, for pretraining only."""
 
     def __init__(self, num_patches, patch_size, in_chans, decoder_embed_dim=512,
                  decoder_depth=8, decoder_num_heads=16, encoder_embed_dim=768,
@@ -152,13 +120,6 @@ class SatMAEDecoder(keras.Model):
         self.decoder_embed = layers.Dense(decoder_embed_dim, name="decoder_embed")
         self.mask_token = self.add_weight(shape=(1, 1, decoder_embed_dim), initializer="zeros",
                                            trainable=True, name="mask_token")
-        # `num_patches` is the *total* sequence length, i.e. the per-group/
-        # per-frame patch grid repeated `num_repeats` times (num_groups for
-        # "multispectral", num_frames for "temporal", 1 for "single") - the
-        # 2D sin-cos position embedding only makes sense over one grid, so
-        # build it for the base grid and tile it across repeats, mirroring
-        # how the encoder adds the same per-group 2D pos embed to every
-        # group before offsetting it with `group_embed`/`temporal_embed`.
         base_patches = num_patches // num_repeats
         grid_size = int(round(base_patches ** 0.5))
         if grid_size * grid_size != base_patches:
@@ -194,14 +155,12 @@ class SatMAEDecoder(keras.Model):
             x = blk(x, training=training)
         x = self.norm(x)
         x = self.pred(x)
-        return x[:, 1:, :]  # drop cls token, return per-patch pixel predictions
+        return x[:, 1:, :]
 
 
 def SatMAE(img_size=224, patch_size=16, in_chans=3, embed_dim=768, depth=12,
            num_heads=12, decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
            mode="single", num_groups=3, num_frames=3, mask_ratio=0.75, name="satmae"):
-    """Full MAE pretraining model: returns a keras.Model that outputs
-    (reconstructed_patches, mask) given an input image / stack."""
     if mode == "single":
         inp_shape = (img_size, img_size, in_chans)
     elif mode == "multispectral":

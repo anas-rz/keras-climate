@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.weather.convlstm`.
-
-Run with: pytest keras_climate/weather/test_convlstm.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -12,10 +7,6 @@ from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import convert_convlstm_stack_state_dict, build_convlstm_identity_mapper
 
 
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
-
 @pytest.mark.parametrize("variant", ["small", "base", "large"])
 def test_builds_and_runs(variant):
     cfg = convlstm_config(variant)
@@ -23,14 +14,10 @@ def test_builds_and_runs(variant):
     x = np.random.randn(1, 5, 32, 32, 1).astype("float32")
     y = keras.ops.convert_to_numpy(model(x))
     assert y.shape == (1, 4, 32, 32, 1)
-    assert (y >= 0).all() and (y <= 1).all()  # sigmoid output
+    assert (y >= 0).all() and (y <= 1).all()
 
 
 def test_decoder_weights_are_shared_across_rollout_steps():
-    """Regression check: the decoder must reuse the same ConvLSTM2D/head
-    weights at every rollout step - a per-step layer would silently
-    multiply the parameter count by `pred_steps` (see convlstm.py's
-    docstring)."""
     filters = (8, 8)
     params_by_pred_steps = set()
     for pred_steps in (2, 5, 9):
@@ -47,22 +34,11 @@ def test_multichannel_output():
     assert y.shape == (1, 3, 16, 16, 3)
 
 
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip. No original ConvLSTMNowcaster checkpoint
-# exists publicly (see convlstm_mapping.py's module docstring) - this
-# validates porting a stack of `ndrplz/ConvLSTM_pytorch`-style cells onto
-# this model's encoder stack, which is the well-defined, checkable unit of
-# portability here (gate reordering + fused-kernel splitting, not just a
-# transpose).
-# --------------------------------------------------------------------------
-
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
     import torch.nn as nn
 
     class ConvLSTMCell(nn.Module):
-        """Matches `ndrplz/ConvLSTM_pytorch`'s cell exactly: fused
-        [input, h_prev] conv producing 4 gates in (i, f, o, g) order."""
 
         def __init__(self, input_dim, hidden_dim, kernel_size):
             super().__init__()
@@ -97,7 +73,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             ])
 
         def forward(self, x):
-            # x: (B, T, C, H, W) -> returns final (h, c) per layer.
             B, T, _, H, W = x.shape
             states = [cell.init_hidden(B, H, W) for cell in self.cell_list]
             cur_input = x
@@ -125,21 +100,19 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_model = ConvLSTMNowcaster(input_shape=(4, 16, 16, 1), pred_steps=1, filters=(8, 8))
     report = WeightConverter(keras_model, translated, build_convlstm_identity_mapper()).convert(
         strict=False, verbose=False)
-    # Only the encoder stack's weights are covered by this source checkpoint.
     unmatched_non_encoder = [k for k in report["missing_in_source"] if "encoder_convlstm" in k]
     assert not unmatched_non_encoder, unmatched_non_encoder
 
     x_np = np.random.randn(1, 4, 1, 16, 16).astype("float32")
     with torch.no_grad():
         _, torch_states = torch_model(torch.from_numpy(x_np))
-    torch_h_final = torch_states[-1][0].numpy()  # last layer's final hidden state, (B, hidden, H, W)
+    torch_h_final = torch_states[-1][0].numpy()
 
-    keras_in = np.transpose(x_np, (0, 1, 3, 4, 2))  # (B, T, C, H, W) -> (B, T, H, W, C)
+    keras_in = np.transpose(x_np, (0, 1, 3, 4, 2))
     enc_layer1 = keras_model.get_layer("encoder_convlstm1")
     encoder_output = keras.Model(keras_model.input, enc_layer1.output).predict(keras_in, verbose=0)
-    # `ConvLSTM2D(return_state=True)` output is [sequence, h, c]; take h.
     keras_h_final = keras.ops.convert_to_numpy(encoder_output[1])
-    keras_h_final = np.transpose(keras_h_final, (0, 3, 1, 2))  # (B, H, W, C) -> (B, C, H, W)
+    keras_h_final = np.transpose(keras_h_final, (0, 3, 1, 2))
 
     max_diff = np.abs(torch_h_final - keras_h_final).max()
     assert max_diff < 1e-3, f"ConvLSTM weight port numerical mismatch: max abs diff {max_diff}"

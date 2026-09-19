@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.forecasting.autoformer`.
-
-Run with: pytest keras_climate/forecasting/test_autoformer.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -11,10 +6,6 @@ from keras_climate.forecasting.autoformer import Autoformer, AutoCorrelation
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_autoformer_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_builds_and_runs():
     seq_len, label_len, pred_len, num_channels = 48, 24, 12, 5
@@ -42,19 +33,12 @@ def test_auto_correlation_cross_attention_different_lengths():
     assert out.shape == (2, 12, 8)
 
 
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference using
-# the same top-k -> full-softmax relaxed Auto-Correlation on both sides
-# (no official checkpoint exists for Autoformer - see module docstring).
-# --------------------------------------------------------------------------
-
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
     import torch.nn as nn
     import torch.nn.functional as F
 
     def rfft_np_style(x):
-        # torch.fft.rfft returns a complex tensor; split into (real, imag).
         X = torch.fft.rfft(x, dim=-1)
         return X.real, X.imag
 
@@ -121,7 +105,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             corr_im = q_im * k_re - q_re * k_im
             corr = irfft_np_style(corr_re, corr_im, Lq)
 
-            weights = torch.softmax(corr.mean(dim=2), dim=-1)  # (B, H, Lq)
+            weights = torch.softmax(corr.mean(dim=2), dim=-1)
 
             v_t = v.permute(0, 1, 3, 2)
             w_re, w_im = rfft_np_style(weights)
@@ -130,7 +114,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             out_re = v_re * w_re - v_im * w_im
             out_im = v_re * w_im + v_im * w_re
             agg = irfft_np_style(out_re, out_im, Lq)
-            agg = agg.permute(0, 1, 3, 2)  # (B, H, Lq, d)
+            agg = agg.permute(0, 1, 3, 2)
 
             out = agg.permute(0, 2, 1, 3).reshape(B, Lq, -1)
             return self.out_proj(out)

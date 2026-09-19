@@ -1,9 +1,3 @@
-"""Build/shape sanity checks + small-scale PyTorch weight-port round-trip
-+ real-checkpoint numerical-parity test for
-`keras_climate.weather.pangu_weather`.
-
-Run with: pytest keras_climate/weather/test_pangu_weather.py
-"""
 import os
 import numpy as np
 import pytest
@@ -15,30 +9,16 @@ from keras_climate.weather.pangu_weather import (
 from keras_climate.weights import WeightConverter
 
 
-# --------------------------------------------------------------------------
-# Build sanity check (Keras only, no torch required). Building/weight-
-# creation is cheap on any backend - it's only a *forward pass* at the
-# real 721x1440x13-level resolution that needs substantial memory (see
-# module docstring) - so this deliberately does NOT call the model.
-# --------------------------------------------------------------------------
-
 def test_builds():
     model = PanguWeather()
-    assert len(model.weights) == 231  # 223 real params + 8 derived attn_mask buffers
+    assert len(model.weights) == 231
     assert model.input_shape == [(None, 13, 721, 1440, 6), (None, 721, 1440, 7)]
     assert model.output_shape == [(None, 5, 13, 721, 1440), (None, 4, 721, 1440)]
 
 
-# --------------------------------------------------------------------------
-# Small-scale forward/round-trip checks - fast and backend-agnostic, since
-# `EarthAttention3D`/`EarthSpecificBlock` accept resolution/type_of_windows
-# as constructor arguments independent of the real hardcoded grid size
-# baked into `PatchEmbedding`/`DownSample`/`UpSample`/`PatchRecovery`.
-# --------------------------------------------------------------------------
-
 def test_earth_attention_3d_small_scale():
     layer = EarthAttention3D(dim=8, heads=2, type_of_windows=4)
-    x = np.random.randn(3, 4, 2 * 6 * 12, 8).astype("float32")  # (nWB, type, window_vol, C)
+    x = np.random.randn(3, 4, 2 * 6 * 12, 8).astype("float32")
     out = keras.ops.convert_to_numpy(layer(x))
     assert out.shape == (3, 4, 2 * 6 * 12, 8)
 
@@ -51,17 +31,10 @@ def test_earth_specific_block_shift_and_no_shift():
     out_shift = keras.ops.convert_to_numpy(block_shift(x))
     assert out_plain.shape == (2, 4 * 8 * 24, 8)
     assert out_shift.shape == (2, 4 * 8 * 24, 8)
-    assert not np.allclose(out_plain, out_shift)  # shifted/plain windows genuinely differ
+    assert not np.allclose(out_plain, out_shift)
 
 
 def test_weight_port_roundtrip_matches_pytorch_reference_small_scale():
-    """Round-trips `EarthSpecificBlock` (the architecturally-intricate
-    piece - 3D window partition/shift/mask + Earth-Specific bias) against
-    a from-scratch small-scale PyTorch mirror of the real reference
-    implementation's exact math (see module docstring for where the real
-    reference was fetched from), at a resolution tiny enough to run
-    anywhere. The real-checkpoint test below validates this same logic
-    bit-exact at the actual 721x1440 scale."""
     torch = pytest.importorskip("torch")
     import torch.nn as nn
     import torch.nn.functional as F
@@ -191,7 +164,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference_small_scale():
 
         keras_block = EarthSpecificBlock(dim, heads, resolution, shift=shift, name="block")
         x0 = np.zeros((1, resolution[0] * resolution[1] * resolution[2], dim), dtype="float32")
-        keras_block(x0)  # build
+        keras_block(x0)
 
         mapper = {
             "norm1.weight": "block/norm1/gamma", "norm1.bias": "block/norm1/beta",
@@ -208,9 +181,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference_small_scale():
         }
         report = WeightConverter(keras_block, state_dict, lambda k: mapper.get(k)).convert(
             strict=False, verbose=False)
-        # `attn_mask` (shifted blocks only) is a non-trainable buffer
-        # derived purely from (Z,H,W)/window_size config, not a checkpoint
-        # weight - it has no source-key counterpart by design.
         assert all(k.endswith("attn_mask") for k in report["missing_in_source"])
         assert not report["unused_source_keys"]
 
@@ -224,23 +194,8 @@ def test_weight_port_roundtrip_matches_pytorch_reference_small_scale():
             f"EarthSpecificBlock (shift={shift}) weight port numerical mismatch: max abs diff {max_diff}")
 
 
-# --------------------------------------------------------------------------
-# Real-checkpoint test: downloads the actual converted PyTorch checkpoint,
-# loads it into both this repo's Keras port AND a from-scratch transcription
-# of the real github.com/zhaoshan2/pangu-pytorch reference implementation
-# (fetched directly from its source, not reconstructed from the paper), and
-# compares outputs numerically end to end at the real 721x1440x13-level
-# resolution. Requires the PyTorch backend (see module docstring on why the
-# TensorFlow backend's memory behavior isn't viable for this specific
-# model's forward pass) - skipped otherwise.
-# --------------------------------------------------------------------------
-
 @pytest.mark.pretrained
 def test_real_pretrained_pangu_weather_matches_reference_implementation():
-    """Run explicitly with `KERAS_BACKEND=torch pytest -m pretrained`
-    (network + ~585MB download, cached after the first run; needs several
-    GB of free memory for the full-resolution forward pass - see module
-    docstring)."""
     if keras.backend.backend() != "torch":
         pytest.skip("PanguWeather's full-resolution forward pass needs the torch backend - "
                     "see module docstring. Run with KERAS_BACKEND=torch.")
@@ -253,7 +208,6 @@ def test_real_pretrained_pangu_weather_matches_reference_implementation():
 
     window_size = (2, 6, 12)
 
-    # --- verbatim (structurally) transcription of the real reference ---
     class Mlp(nn.Module):
         def __init__(self, dim):
             super().__init__()
@@ -506,33 +460,18 @@ def test_real_pretrained_pangu_weather_matches_reference_implementation():
             x = torch.cat((skip, x), dim=-1)
             return self._output_layer(x, 8, 181, 360)
 
-    # Run the reference PyTorch model and the Keras port SEQUENTIALLY, one
-    # torn down (weights + activations freed) before the other is built -
-    # holding both full-resolution models' weights and peak per-block
-    # attention activations in memory AT ONCE is enough to exhaust a
-    # machine with tens of GB free (see module docstring on why a single
-    # block's attention step alone needs multiple GB).
     import gc
 
     zip_path = os.path.join(DEFAULT_CACHE_DIR, "pangu_pretrained_model",
                              "pretrained_model", "pangu_weather_24_torch.pth")
 
-    # --- build matching (normalization-neutral) inputs for both sides ---
     rng = np.random.RandomState(0)
     raw_upper = (rng.randn(1, 5, 13, 721, 1440) * 0.1).astype("float32")
     raw_surface = (rng.randn(1, 4, 721, 1440) * 0.1).astype("float32")
     const_h = (rng.randn(1, 1, 1, 13, 721, 1440) * 0.1).astype("float32")
-    # Only 721 rows generated (matching the real 7-channel Keras input
-    # contract): the reference's `maps` parameter itself expects a
-    # pre-padded 724-row array (its `check_image_size_2d` only pads
-    # `input_surface`, not the caller-supplied `constant_masks`), so the
-    # extra 3 rows are zero-padded on here - NOT independently
-    # randomized - to stay consistent with what a real 721-row mask input
-    # actually provides once padded, matching the Keras side exactly.
     maps_721 = (rng.randn(1, 3, 721, 1440) * 0.1).astype("float32")
     maps = np.pad(maps_721, ((0, 0), (0, 0), (0, 3), (0, 0)), mode="constant")
 
-    # --- reference PyTorch model: build, load, run, extract, free ---
     torch_model = PanguModel()
     ckpt = torch.load(zip_path, map_location="cpu", weights_only=False)
     missing, unexpected = torch_model.load_state_dict(ckpt["model"], strict=False)
@@ -551,9 +490,6 @@ def test_real_pretrained_pangu_weather_matches_reference_implementation():
     del torch_model, ckpt, missing, unexpected
     gc.collect()
 
-    # Both level-flips in PatchEmbedding_pretrain cancel (net no-op) with
-    # mean=0/std=1 stats, so plain concatenation is exactly equivalent to
-    # what the reference computes - see pangu_weather.py's module docstring.
     upper_6ch = np.concatenate(
         [np.transpose(raw_upper[0], (1, 2, 3, 0)), const_h[0, 0, 0][:, :, :, None]], axis=-1)[None]
     surface_7ch = np.concatenate(
@@ -561,7 +497,6 @@ def test_real_pretrained_pangu_weather_matches_reference_implementation():
     del raw_upper, raw_surface, const_h, maps, maps_721
     gc.collect()
 
-    # --- Keras port: build, load the same checkpoint, run, extract ---
     keras_model, report = pangu_weather_24()
     assert not report["unused_source_keys"]
     assert all(k.endswith("attn_mask") for k in report["missing_in_source"])

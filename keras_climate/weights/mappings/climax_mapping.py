@@ -1,22 +1,3 @@
-"""
-Mapping for `keras_climate.weather.climax.ClimaX`, targeting Microsoft's
-official `1.40625deg.ckpt` checkpoint (see `weights/pretrained.py`'s
-`climax_1_40625deg` loader).
-
-Two checkpoint-specific naming quirks, confirmed by directly inspecting
-the real checkpoint's `state_dict` (its per-variable/aggregation naming
-differs from the current `microsoft/ClimaX` GitHub source, which uses
-`var_embed`/`var_query`/`var_agg` - this specific released checkpoint
-uses `channel_embed`/`channel_query`/`channel_agg` instead):
-  * every key is nested under a `net.` prefix (a PyTorch Lightning
-    `LightningModule.net` submodule).
-  * the per-variable-aggregation cross-attention's parameter names are
-    `channel_embed`/`channel_query`/`channel_agg.*`, not `var_*`.
-Everything else (`token_embeds.{v}.proj`, `pos_embed`, `lead_time_embed`,
-`blocks.{i}.*`, `norm`, `head.{0,2,4}`) matches this repo's own naming
-one-to-one.
-"""
-
 import re
 
 

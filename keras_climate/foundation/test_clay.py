@@ -1,13 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.foundation.clay`.
-
-No public Clay checkpoint is small enough to validate here (the official
-v1.5 release is ~5GB) - the round-trip test below validates against a
-from-scratch PyTorch reference implementing the same architecture (see
-`foundation/clay.py`'s module docstring for the full caveat).
-
-Run with: pytest keras_climate/foundation/test_clay.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -16,10 +6,6 @@ from keras_climate.foundation.clay import ClayEncoder, ClayClassifier, posemb_si
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import convert_clay_encoder_state_dict, build_clay_identity_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_position_embedding_shapes():
     pos = posemb_sincos_2d_with_gsd(8, 8, 56, gsd=10.0)
@@ -50,8 +36,6 @@ def test_classifier():
 
 
 def test_different_band_counts_reuse_the_same_dynamic_embedding():
-    """The whole point of the dynamic embedding: the same encoder handles
-    a different number/set of bands without any architecture change."""
     encoder = ClayEncoder(img_size=32, patch_size=8, embed_dim=32, depth=1, num_heads=4,
                            dim_head=8, wave_dim=16, num_latent_tokens=4)
     for num_bands in (3, 6, 10):
@@ -61,13 +45,6 @@ def test_different_band_counts_reuse_the_same_dynamic_embedding():
         out = encoder({"pixels": pixels, "waves": waves, "time_latlon": time_latlon}, gsd=10.0)
         assert out.shape[-1] == 32
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference
-# implementing the official DynamicEmbedding/WavesTransformer + lucidrains
-# Transformer architecture (see module docstring: no real checkpoint is
-# small enough to validate against directly).
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -219,7 +196,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     zeros = {"pixels": np.zeros((1, IMG, IMG, NUM_BANDS), dtype="float32"),
              "waves": np.zeros((NUM_BANDS,), dtype="float32"),
              "time_latlon": np.zeros((1, 8), dtype="float32")}
-    keras_model(zeros, gsd=10.0)  # build
+    keras_model(zeros, gsd=10.0)
 
     report = WeightConverter(keras_model, translated, build_clay_identity_mapper()).convert(
         strict=True, verbose=False)

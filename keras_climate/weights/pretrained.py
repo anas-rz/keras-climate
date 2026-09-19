@@ -1,128 +1,3 @@
-"""
-keras_climate.weights.pretrained
------------------------------------
-"timm-style" pretrained-weight loaders for the `remote_sensing` models:
-each function here downloads a real, publicly-hosted PyTorch checkpoint
-(cached locally so it's only fetched once), ports it through this repo's
-`WeightConverter` + the matching name-mapping, and returns a ready
-`keras.Model` (or encoder/decoder pair) with real pretrained weights
-loaded - no training required to get a working model.
-
-    from keras_climate.weights.pretrained import unet_carvana
-    model, report = unet_carvana()
-    model.summary()
-
-Every loader returns `(model, report)` (or `(encoder, decoder, report)` for
-SatMAE) where `report` is the `WeightConverter.convert(...)` report dict,
-so callers can inspect exactly what did/didn't get matched.
-
-Coverage note - not every architecture in this repo has a publicly
-downloadable checkpoint that matches it exactly:
-  - `unet_carvana`: exact architecture + checkpoint match (milesial's own
-    released Carvana weights).
-  - `deeplabv3plus_resnet50_imagenet_backbone`: only the ResNet-50 backbone
-    is pretrained (ImageNet-1k, via torchvision); no public checkpoint
-    exists for this exact ASPP+decoder head, so it stays randomly
-    initialized. Useful for verifying backbone-porting fidelity and as a
-    fine-tuning starting point, not for out-of-the-box segmentation.
-  - `segformer_b0_ade20k`: exact architecture + checkpoint match (the full
-    encoder + decode head, fine-tuned on ADE20K) - requires `transformers`
-    at conversion time to fetch/read the source checkpoint.
-  - `satmae_vit_base_mae`: SatMAE's own checkpoints aren't hosted for
-    direct download; `mode="single"` is architecturally identical to a
-    plain ViT-MAE, so Meta AI's official ImageNet-1k MAE checkpoint is
-    used as the best publicly-available stand-in for validating that
-    shared core end-to-end.
-  - `prithvi_eo_100m`: exact architecture + checkpoint match (IBM/NASA's
-    own `Prithvi-EO-1.0-100M` release, encoder only - the MAE decoder
-    portion of the checkpoint is skipped since this repo doesn't implement
-    a Prithvi decoder).
-  - `croma_base`/`croma_large`: exact architecture + checkpoint match (the
-    paper authors' own released checkpoint, both modalities + the joint
-    fusion encoder).
-  - `scalemae_vitlarge_fmow`: exact architecture + checkpoint match
-    (TorchGeo's clean re-export of the official facebookresearch/scale-mae
-    fMoW-RGB ViT-L/16 encoder; the decoder/FPN half of the official full
-    checkpoint isn't implemented here - see `remote_sensing/scalemae.py`).
-  - `ssl4eo_resnet50_moco`: exact architecture + checkpoint match
-    (TorchGeo's clean re-export of the official zhu-xlab/SSL4EO-S12
-    MoCo v2 ResNet-50, 13-band Sentinel-2 stem).
-  - `satclip_location_encoder_resnet18_l10`: exact architecture + checkpoint
-    match (Microsoft's own official `SatCLIP-ResNet18-L10`; only the
-    location-encoder half, not the paired image encoder - see
-    `remote_sensing/satclip.py`'s module docstring on the reverse-engineered
-    spherical-harmonics normalization).
-  - `prithvi_eo_v2_300m`: exact architecture + checkpoint match (IBM/NASA's
-    official `Prithvi-EO-2.0-300M`, encoder only, base non-"-TL" variant -
-    see `foundation/prithvi.py`'s module docstring).
-  - `fourcastnet_backbone`: exact architecture + checkpoint match (NVIDIA's
-    official FourCastNet backbone, mirrored non-interactively at NERSC -
-    see `weather/fourcastnet.py`'s module docstring).
-  - `climax_1_40625deg`: exact architecture + checkpoint match (Microsoft's
-    official ClimaX checkpoint - see `weather/climax.py`'s module
-    docstring and `weights/mappings/climax_mapping.py`'s note on this
-    checkpoint's `channel_*` vs the GitHub source's `var_*` naming).
-  - `pangu_weather_24`: exact architecture + checkpoint match (a clean
-    PyTorch conversion of Huawei's official Pangu-Weather ONNX release -
-    **BY-NC-SA 4.0, non-commercial use only** - see
-    `weather/pangu_weather.py`'s module docstring on its memory/backend
-    requirements and the input-preprocessing scope boundary).
-
-FourCastNet v2 (SFNO) is deliberately not implemented: it replaces AFNO's
-planar FFT with a genuine Spherical Harmonic Transform on the sphere,
-which is the model's defining feature (not an implementation detail) and
-would require reproducing a correctness-critical numerical transform
-library (`torch-harmonics`) from scratch to load its real checkpoint
-faithfully - out of scope for this pass.
-
-None of the `operators` models (AFNO, FNO, DeepONet, UNO) have a loader
-here, despite two of them having a real checkpoint that exists somewhere:
-  - AFNO: the only released AFNO weights are FourCastNet's own (already
-    covered by `fourcastnet_backbone` above) - no standalone, task-
-    agnostic AFNO checkpoint exists.
-  - FNO: a real checkpoint exists (`pdebench-fno-audit/fno-weights`), but
-    its state_dict reveals a modified block structure (`spectral`/
-    `pointwise`/`local_conv`/a scalar `gate`) that doesn't match the
-    original paper's code, PDEBench's own repo, or any indexed version of
-    `neuraloperator` - its exact combination formula is unverifiable from
-    any public source (see `operators/fno.py`'s module docstring).
-  - DeepONet: a real checkpoint exists (`BGLab/DeepONet-FlowBench-FPO`),
-    but its branch net is preceded by a custom multi-scale Inception-style
-    CNN feature extractor whose exact wiring can't be determined from
-    tensor shapes/names alone (see `operators/deeponet.py`'s module
-    docstring).
-  - UNO: no checkpoint exists anywhere (neither the paper's code nor
-    `neuraloperator` ships one).
-All four are validated only against from-scratch synthetic PyTorch
-references of their own architectures (see each module's docstring and
-`weights/mappings/{afno,fno,deeponet,uno}_mapping.py`).
-
-Clay has no loader here: its official checkpoint is ~5GB, impractical to
-fetch/validate in most environments - it's still validated against a
-synthetic reference matching `clay_mapping.py`'s assumed naming (see
-`foundation/test_clay.py`), just not against the real public checkpoint.
-
-AnySat has two, deliberately different, implementations:
-  - `AnySatEncoder` (`foundation/anysat.py`): this repo's own simpler
-    "any modality, any resolution" ViT - validated only against a
-    from-scratch synthetic reference (see `foundation/test_anysat.py`),
-    not the real checkpoint, and has no loader here.
-  - `anysat_base` below, backed by `AnySatRelease`
-    (`foundation/anysat_release.py`): a faithful port of the *officially
-    released* AnySat architecture (per-modality-kind projector zoo, a
-    local iRPE transformer, a global transformer, and an iRPE cross-
-    attention pooling block) - exact architecture + checkpoint match
-    against the paper authors' own `g-astruc/AnySat` release, validated
-    end-to-end to ~1e-6 against real PyTorch forward passes using the
-    real checkpoint weights (see `foundation/test_anysat_release.py`).
-
-RingMo has no loader either: no official or credible unofficial
-checkpoint has ever been publicly released for it at all (see
-`remote_sensing/ringmo.py`'s module docstring) - it's validated only
-against a from-scratch synthetic reference of this repo's own
-architecture.
-"""
-
 import os
 import urllib.request
 import zipfile
@@ -182,17 +57,13 @@ def _download(url, filename, cache_dir=None):
 
 
 def unet_carvana(input_shape=(256, 256, 3), cache_dir=None, strict=True):
-    """UNet (base_filters=64, depth=4), binary car-vs-background
-    segmentation (2 output classes/logits), pretrained on the Carvana
-    dataset - the exact checkpoint from milesial/Pytorch-UNet's v3.0
-    release."""
     path = _download(
         "https://github.com/milesial/Pytorch-UNet/releases/download/v3.0/"
         "unet_carvana_scale1.0_epoch2.pth",
         "unet_carvana_scale1.0_epoch2.pth", cache_dir,
     )
     model = UNet(input_shape=input_shape, num_classes=2, base_filters=64, depth=4)
-    model(np.zeros((1,) + input_shape, dtype="float32"))  # build
+    model(np.zeros((1,) + input_shape, dtype="float32"))
 
     state_dict = load_torch_state_dict_as_numpy(path)
     report = WeightConverter(
@@ -203,24 +74,16 @@ def unet_carvana(input_shape=(256, 256, 3), cache_dir=None, strict=True):
 
 
 def deeplabv3plus_resnet50_imagenet_backbone(input_shape=(512, 512, 3), num_classes=21, cache_dir=None):
-    """DeepLabV3+ (ResNet-50, output_stride=16) with an ImageNet-1k
-    pretrained torchvision ResNet-50 backbone; the ASPP + decoder head
-    have no matching public checkpoint and stay randomly initialized (see
-    module docstring)."""
     path = _download(
         "https://download.pytorch.org/models/resnet50-11ad3fa6.pth",
         "resnet50-11ad3fa6.pth", cache_dir,
     )
     model = DeepLabV3Plus(input_shape=input_shape, num_classes=num_classes,
                            backbone_layers=(3, 4, 6, 3), output_stride=16)
-    model(np.zeros((1,) + input_shape, dtype="float32"))  # build
+    model(np.zeros((1,) + input_shape, dtype="float32"))
 
     state_dict = load_torch_state_dict_as_numpy(path)
     mapper = build_resnet_backbone_mapper(layer_counts=(3, 4, 6, 3))
-    # strict=False: the checkpoint only covers the backbone (no ASPP/decoder
-    # weights exist to match); `fc.*` (the ImageNet classifier head) and
-    # `num_batches_tracked` (a BN counter with no Keras equivalent) are
-    # expected to be unused, not signs of a mapping problem.
     report = WeightConverter(
         model, state_dict, mapper,
         skip_patterns=[r"num_batches_tracked$", r"^fc\."],
@@ -229,11 +92,6 @@ def deeplabv3plus_resnet50_imagenet_backbone(input_shape=(512, 512, 3), num_clas
 
 
 def segformer_b0_ade20k(input_shape=(512, 512, 3), cache_dir=None, strict=True):
-    """Full SegFormer-B0 (MiT-B0 encoder + all-MLP decode head), pretrained
-    and fine-tuned on ADE20K (150 classes) -
-    `nvidia/segformer-b0-finetuned-ade-512-512` from HuggingFace. Requires
-    `transformers` installed (conversion-time only, to download/read the
-    source checkpoint)."""
     from transformers import SegformerForSemanticSegmentation
 
     hf_model = SegformerForSemanticSegmentation.from_pretrained(
@@ -244,7 +102,7 @@ def segformer_b0_ade20k(input_shape=(512, 512, 3), cache_dir=None, strict=True):
     state_dict = convert_hf_segformer_state_dict(hf_state_dict, cfg)
 
     model = SegFormer(input_shape=input_shape, num_classes=150, variant="b0")
-    model(np.zeros((1,) + input_shape, dtype="float32"))  # build
+    model(np.zeros((1,) + input_shape, dtype="float32"))
 
     mapper = build_segformer_mapper(cfg)
     param_kind_map = build_segformer_param_kind_map(cfg)
@@ -255,13 +113,6 @@ def segformer_b0_ade20k(input_shape=(512, 512, 3), cache_dir=None, strict=True):
 
 
 def satmae_vit_base_mae(img_size=224, cache_dir=None, strict=True):
-    """ViT-Base MAE encoder + decoder, pretrained on ImageNet-1k - Meta
-    AI's official `mae_visualize_vit_base.pth` checkpoint (the "visualize"
-    release, which is the one that keeps the decoder for reconstruction
-    demos; the plain `mae_pretrain_vit_base.pth` release strips it).
-    Architecturally identical to `SatMAEEncoder`/`SatMAEDecoder` with
-    `mode="single"` (see module docstring for why this stands in for a
-    SatMAE-specific checkpoint)."""
     path = _download(
         "https://dl.fbaipublicfiles.com/mae/visualize/mae_visualize_vit_base.pth",
         "mae_visualize_vit_base.pth", cache_dir,
@@ -273,14 +124,10 @@ def satmae_vit_base_mae(img_size=224, cache_dir=None, strict=True):
                              encoder_embed_dim=768)
     x0 = np.zeros((1, img_size, img_size, 3), dtype="float32")
     tok0, mask0, ids0 = encoder(x0, apply_masking=True, mask_ratio=0.75)
-    decoder(tok0, ids0)  # build
+    decoder(tok0, ids0)
 
     state_dict = load_torch_state_dict_as_numpy(path)
     mapper = build_satmae_mapper()
-    # Each converter only owns half of a shared state_dict - skip the
-    # other half's keys so `strict=True` checks "did every weight *this*
-    # model needs get matched" rather than tripping over the sibling
-    # half's keys looking "unused".
     enc_report = WeightConverter(
         encoder, state_dict, mapper,
         skip_patterns=[r"^decoder", r"^mask_token$"],
@@ -293,10 +140,6 @@ def satmae_vit_base_mae(img_size=224, cache_dir=None, strict=True):
 
 
 def prithvi_eo_100m(img_size=224, cache_dir=None, strict=True):
-    """`PrithviEncoder` (embed_dim=768, depth=12, num_heads=12), pretrained
-    on NASA HLS imagery - IBM/NASA's official
-    `ibm-nasa-geospatial/Prithvi-EO-1.0-100M` checkpoint
-    (`Prithvi_EO_V1_100M.pt`, encoder half only)."""
     path = _download(
         "https://huggingface.co/ibm-nasa-geospatial/Prithvi-EO-1.0-100M/resolve/main/"
         "Prithvi_EO_V1_100M.pt",
@@ -304,12 +147,8 @@ def prithvi_eo_100m(img_size=224, cache_dir=None, strict=True):
     )
     encoder = PrithviEncoder(img_size=img_size, patch_size=16, num_frames=3, tubelet_size=1,
                               in_chans=6, embed_dim=768, depth=12, num_heads=12, name="encoder")
-    encoder(np.zeros((1, 3, img_size, img_size, 6), dtype="float32"))  # build
+    encoder(np.zeros((1, 3, img_size, img_size, 6), dtype="float32"))
 
-    # The checkpoint is the *full* PrithviMAE (encoder+decoder); the
-    # encoder half is nested under an "encoder." prefix matching this
-    # `encoder` submodel's own name, so it's stripped then re-added by
-    # `build_vit_mapper("encoder")` rather than left in place.
     state_dict = load_torch_state_dict_as_numpy(path, key_prefix_strip="encoder.")
     mapper = build_vit_mapper("encoder")
     report = WeightConverter(
@@ -321,13 +160,6 @@ def prithvi_eo_100m(img_size=224, cache_dir=None, strict=True):
 
 
 def scalemae_vitlarge_fmow(img_size=224, cache_dir=None, strict=True):
-    """`ScaleMAEEncoder` (ViT-L/16, embed_dim=1024, depth=24, heads=16),
-    pretrained on fMoW-RGB (800 epochs) - TorchGeo's clean re-export of the
-    official facebookresearch/scale-mae checkpoint
-    (`vit_large_patch16_224_fmow_rgb_scalemae`), which uses plain timm ViT
-    key names (unlike the official full checkpoint, which also bundles the
-    Laplacian-pyramid FPN decoder this repo doesn't implement - see module
-    docstring)."""
     path = _download(
         "https://huggingface.co/isaaccorley/vit_large_patch16_224_fmow_rgb_scalemae/resolve/main/"
         "vit_large_patch16_224_fmow_rgb_scalemae-386989c9.pth",
@@ -339,14 +171,6 @@ def scalemae_vitlarge_fmow(img_size=224, cache_dir=None, strict=True):
 
     state_dict = load_torch_state_dict_as_numpy(path)
     mapper = build_scalemae_mapper()
-    # `pos_embed`/`decoder_pos_embed` are dead weight in the source
-    # checkpoint (see module docstring) and have no Keras counterpart -
-    # skip rather than treat as "unused". Conversely,
-    # `pos_embed/{grid_h,grid_w,omega}` are non-trainable buffers on the
-    # *Keras* side, derived purely from config (see
-    # `GSDPositionalEmbedding`) - they have no source-key counterpart by
-    # design, so `strict=True` can only ever mean "every *other* weight
-    # matched", not "zero missing".
     report = WeightConverter(
         encoder, state_dict, mapper,
         skip_patterns=SCALEMAE_SKIP_PATTERNS,
@@ -365,18 +189,13 @@ def scalemae_vitlarge_fmow(img_size=224, cache_dir=None, strict=True):
 
 
 def ssl4eo_resnet50_moco(input_shape=(224, 224, 13), cache_dir=None, strict=True):
-    """`SSL4EOResNet50`, self-supervised (MoCo v2) pretrained on 13-band
-    Sentinel-2 L1C imagery - TorchGeo's clean re-export of the official
-    zhu-xlab/SSL4EO-S12 checkpoint (`resnet50_sentinel2_all_moco`; the
-    official repo's own release is Google-Drive-hosted and unsuitable for
-    non-interactive download). Backbone-only (no `fc` head)."""
     path = _download(
         "https://hf.co/torchgeo/resnet50_sentinel2_all_moco/resolve/"
         "da4f3c9dbe09272eb902f3b37f46635fa4726879/resnet50_sentinel2_all_moco-df8b932e.pth",
         "resnet50_sentinel2_all_moco-df8b932e.pth", cache_dir,
     )
     model = SSL4EOResNet50(input_shape=input_shape)
-    model(np.zeros((1,) + input_shape, dtype="float32"))  # build
+    model(np.zeros((1,) + input_shape, dtype="float32"))
 
     state_dict = load_torch_state_dict_as_numpy(path)
     mapper = build_ssl4eo_mapper(layer_counts=(3, 4, 6, 3))
@@ -388,17 +207,12 @@ def ssl4eo_resnet50_moco(input_shape=(224, 224, 13), cache_dir=None, strict=True
 
 
 def satclip_location_encoder_resnet18_l10(cache_dir=None, strict=True):
-    """`SatCLIPLocationEncoder` (legendre_polys=10, dim_hidden=512,
-    num_hidden_layers=2, embed_dim=256), the exact SirenNet weights from
-    Microsoft's official `microsoft/SatCLIP-ResNet18-L10` checkpoint (the
-    smallest released variant) - only the location-encoder half is ported,
-    not the paired ResNet-18 image encoder (see module docstring)."""
     path = _download(
         "https://huggingface.co/microsoft/SatCLIP-ResNet18-L10/resolve/main/satclip-resnet18-l10.ckpt",
         "satclip-resnet18-l10.ckpt", cache_dir,
     )
     model = SatCLIPLocationEncoder(legendre_polys=10, dim_hidden=512, num_hidden_layers=2, embed_dim=256)
-    model(np.zeros((1, 2), dtype="float32"))  # build
+    model(np.zeros((1, 2), dtype="float32"))
 
     state_dict = load_satclip_checkpoint(path)
     mapper = build_satclip_location_mapper(num_hidden_layers=2)
@@ -410,11 +224,6 @@ def satclip_location_encoder_resnet18_l10(cache_dir=None, strict=True):
 
 
 def prithvi_eo_v2_300m(img_size=224, num_frames=4, cache_dir=None, strict=True):
-    """`PrithviEncoder` at Prithvi-EO-2.0's 300M config (embed_dim=1024,
-    depth=24, num_heads=16) - IBM/NASA's official
-    `ibm-nasa-geospatial/Prithvi-EO-2.0-300M` checkpoint (encoder half
-    only; base non-"-TL" variant, architecturally identical to Prithvi-EO
-    -1.0 otherwise - see `foundation/prithvi.py`'s module docstring)."""
     path = _download(
         "https://huggingface.co/ibm-nasa-geospatial/Prithvi-EO-2.0-300M/resolve/main/"
         "Prithvi_EO_V2_300M.pt",
@@ -424,9 +233,8 @@ def prithvi_eo_v2_300m(img_size=224, num_frames=4, cache_dir=None, strict=True):
     encoder = PrithviEncoder(img_size=img_size, patch_size=cfg["patch_size"], num_frames=num_frames,
                               tubelet_size=1, in_chans=6, embed_dim=cfg["embed_dim"],
                               depth=cfg["depth"], num_heads=cfg["num_heads"], name="encoder")
-    encoder(np.zeros((1, num_frames, img_size, img_size, 6), dtype="float32"))  # build
+    encoder(np.zeros((1, num_frames, img_size, img_size, 6), dtype="float32"))
 
-    # Same "encoder." nesting as Prithvi-EO-1.0's full-MAE checkpoint.
     state_dict = load_torch_state_dict_as_numpy(path, key_prefix_strip="encoder.")
     mapper = build_vit_mapper("encoder")
     report = WeightConverter(
@@ -438,12 +246,6 @@ def prithvi_eo_v2_300m(img_size=224, num_frames=4, cache_dir=None, strict=True):
 
 
 def fourcastnet_backbone(cache_dir=None, strict=True):
-    """`FourCastNet` at its full released config (720x1440 grid,
-    patch_size=8, embed_dim=768, depth=12, 20 ERA5 variables) - NVIDIA's
-    official checkpoint, mirrored non-interactively at NERSC (the
-    project's own Globus link requires an account). Requires
-    `ruamel.yaml` installed in addition to `torch` (see
-    `load_fourcastnet_checkpoint`'s docstring) and downloads ~855MB."""
     path = _download(
         "https://portal.nersc.gov/project/m4134/FCN_weights_v0/backbone.ckpt",
         "fourcastnet_backbone.ckpt", cache_dir,
@@ -452,7 +254,7 @@ def fourcastnet_backbone(cache_dir=None, strict=True):
     grid_h, grid_w = img_size[0] // patch_size, img_size[1] // patch_size
     model = FourCastNet(img_size=img_size, patch_size=patch_size, in_chans=20, out_chans=20,
                          embed_dim=768, depth=12, num_blocks=8)
-    model(np.zeros((1,) + img_size + (20,), dtype="float32"))  # build
+    model(np.zeros((1,) + img_size + (20,), dtype="float32"))
 
     raw_state_dict = load_fourcastnet_checkpoint(path)
     state_dict = convert_fourcastnet_state_dict(raw_state_dict, grid_h, grid_w)
@@ -462,13 +264,6 @@ def fourcastnet_backbone(cache_dir=None, strict=True):
 
 
 def climax_1_40625deg(cache_dir=None, strict=True):
-    """`ClimaX` at its 1.40625-degree config (128x256 grid, patch_size=4,
-    48 variables, embed_dim=1024, depth=8) - Microsoft's official
-    checkpoint, hosted directly on HuggingFace (`microsoft/ClimaX`,
-    `1.40625deg.ckpt`). Note: the released checkpoint's per-variable-
-    aggregation parameters are named `channel_embed`/`channel_query`/
-    `channel_agg`, not the `var_*` naming in the current GitHub source -
-    see `weights/mappings/climax_mapping.py`'s module docstring."""
     path = _download(
         "https://huggingface.co/microsoft/ClimaX/resolve/main/1.40625deg.ckpt",
         "climax_1_40625deg.ckpt", cache_dir,
@@ -477,7 +272,7 @@ def climax_1_40625deg(cache_dir=None, strict=True):
     model = ClimaX(img_size=img_size, patch_size=patch_size, num_vars=num_vars,
                     embed_dim=1024, depth=8, decoder_depth=2, num_heads=16)
     model([np.zeros((1,) + img_size + (num_vars,), dtype="float32"),
-           np.zeros((1, 1), dtype="float32")])  # build
+           np.zeros((1, 1), dtype="float32")])
 
     state_dict = load_torch_state_dict_as_numpy(path, key_prefix_strip="net.")
     mapper = build_climax_mapper(num_vars=num_vars, depth=8, decoder_depth=2)
@@ -486,36 +281,6 @@ def climax_1_40625deg(cache_dir=None, strict=True):
 
 
 def pangu_weather_24(cache_dir=None, strict=True):
-    """`PanguWeather` (24-hour forecast lead time, the full released
-    config: 721x1440 grid, dims=(192,384,384,192), depths=(2,6,6,2)) -
-    a clean PyTorch conversion of Huawei's official ONNX release, from
-    github.com/zhaoshan2/pangu-pytorch's HuggingFace dataset
-    (`zhaoshan/pangu_pytorch`, `pretrained_model.zip`, containing both the
-    original `.onnx` and the already-converted `.pth` this loader uses).
-
-    **BY-NC-SA 4.0 - non-commercial use only** (the underlying weights are
-    Huawei's, regardless of which conversion path produced this specific
-    file).
-
-    Building the model and loading these weights works on any Keras
-    backend, but actually *calling* the returned model (a full forward
-    pass over the real 721x1440x13-level grid) is memory-heavy enough
-    that it reliably completes only under the PyTorch backend
-    (`KERAS_BACKEND=torch`, with `torch.no_grad()`) in a typical
-    development environment - the TensorFlow backend's graph-tracing
-    retains enough intermediate state to exhaust memory on a machine with
-    tens of GB free, even though this is architecturally the same
-    computation either way (see `weather/pangu_weather.py`'s module
-    docstring on why the attention step alone needs multiple GB per
-    block). This mirrors the real official model's own resource
-    requirements (typically run on a GPU with substantial memory).
-
-    Inputs the returned model expects: see `PanguWeather`'s docstring -
-    already-normalized, already-concatenated 6-channel upper-air and
-    7-channel surface tensors (this loader does not fetch or apply the
-    official `aux_data.zip` normalization statistics/masks/constant
-    field, which are a separate, non-parameter data-preprocessing
-    concern - see `weather/pangu_weather.py`'s module docstring)."""
     zip_path = _download(
         "https://huggingface.co/datasets/zhaoshan/pangu_pytorch/resolve/main/pretrained_model.zip",
         "pangu_pretrained_model.zip", cache_dir,
@@ -526,14 +291,6 @@ def pangu_weather_24(cache_dir=None, strict=True):
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(extract_dir)
 
-    # `PanguWeather()` is a pure Functional-API `keras.Model` (built from
-    # explicit `keras.Input` calls), so its weights already exist right
-    # after construction - unlike a subclassed model with a lazy
-    # `build()`, no throwaway forward pass is needed just to materialize
-    # them. Skipping it matters here specifically: an extra full-
-    # resolution forward pass roughly doubles this function's peak/
-    # cumulative memory footprint (see module docstring on why a single
-    # pass alone already needs several GB).
     model = PanguWeather()
 
     import torch
@@ -542,10 +299,6 @@ def pangu_weather_24(cache_dir=None, strict=True):
     state_dict = convert_pangu_weather_state_dict(state_dict)
 
     mapper = build_pangu_weather_mapper(depths=(2, 6, 6, 2))
-    # `attn_mask` buffers are derived, non-trainable constants (see
-    # `pangu_weather.py`'s `EarthSpecificBlock`) with no checkpoint
-    # counterpart by design - `strict=True` can only mean "every *other*
-    # weight matched", not "zero missing".
     report = WeightConverter(model, state_dict, mapper).convert(strict=False, verbose=True)
     expected_missing = {k for k in report["missing_in_source"] if k.endswith("attn_mask")}
     if strict and (set(report["missing_in_source"]) - expected_missing or report["unused_source_keys"]):
@@ -557,14 +310,10 @@ def pangu_weather_24(cache_dir=None, strict=True):
 
 
 def croma_base(img_size=120, cache_dir=None, strict=True):
-    """`CROMA(size="base")`, pretrained on paired Sentinel-1/Sentinel-2
-    imagery - the paper authors' own released `antofuller/CROMA`
-    checkpoint (`CROMA_base.pt`)."""
     return _croma(size="base", img_size=img_size, cache_dir=cache_dir, strict=strict)
 
 
 def croma_large(img_size=120, cache_dir=None, strict=True):
-    """`CROMA(size="large")` - `antofuller/CROMA`'s `CROMA_large.pt`."""
     return _croma(size="large", img_size=img_size, cache_dir=cache_dir, strict=strict)
 
 
@@ -584,27 +333,6 @@ def _croma(size, img_size, cache_dir, strict):
 
 
 def anysat_base(modalities=None, input_shapes=None, scale=1, cache_dir=None, strict=False):
-    """`AnySatRelease` at the officially released "base" config
-    (embed_dim=768, depth=6, num_heads=12, 125.9M params) - the paper
-    authors' own `g-astruc/AnySat` checkpoint (HuggingFace `g-astruc/AnySat`,
-    `models/AnySat.pth`).
-
-    `modalities`/`input_shapes`/`scale` pick which of the model's 11
-    modality projectors to build and their (fixed) input shapes - see
-    `AnySatRelease`'s docstring; defaults to a small aerial + Sentinel-2
-    example at `scale=1` (a 10m output patch), cheap to build and run.
-    Pass `modalities=ANYSAT_MODALITIES` (every modality) for a `strict=True`
-    full-checkpoint load - not every `(modality, scale)` combination is
-    valid (`l7`/`alos`'s ~30m native resolution only lines up with the
-    model's resolution-aware position embedding at certain `scale` values;
-    `AnySatRelease` raises with a clear message on a mismatched pairing,
-    same as the official implementation would).
-
-    `strict=True` only ever means "every *other* weight matched" - the
-    per-time-series-modality `pe_denom` buffers (the LTAE positional
-    encoder's frequency denominators) are derived purely from config, with
-    no checkpoint counterpart by design, so they're always expected-missing
-    regardless of `strict`."""
     path = _download(
         "https://huggingface.co/g-astruc/AnySat/resolve/main/models/AnySat.pth",
         "AnySat.pth", cache_dir,
@@ -634,12 +362,10 @@ def anysat_base(modalities=None, input_shapes=None, scale=1, cache_dir=None, str
             dummy[m] = np.zeros((1,) + shp, dtype="float32")
         else:
             dummy[m] = (np.zeros((1,) + shp, dtype="float32"), np.zeros((1, shp[0]), dtype="float32"))
-    model(dummy)  # build
+    model(dummy)
 
     state_dict = load_torch_state_dict_as_numpy(path)
     mapper = build_anysat_release_mapper(modalities, depth=6)
-    # `pad_parameter`s are a training-time masking helper with no Keras
-    # counterpart; `pe_denom`s are the derived buffers noted above.
     report = WeightConverter(
         model, state_dict, mapper, skip_patterns=[r"pad_parameter$"],
     ).convert(strict=False, verbose=True)

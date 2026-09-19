@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.foundation.prithvi`.
-
-Run with: pytest keras_climate/foundation/test_prithvi.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -12,14 +7,10 @@ from keras_climate.weights import WeightConverter, load_torch_state_dict_as_nump
 from keras_climate.weights.mappings import build_vit_mapper
 
 
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
-
 def test_position_embedding_shape_and_factorization():
     pos = get_3d_sincos_pos_embed(768, (3, 14, 14), add_cls_token=True)
     assert pos.shape == (3 * 14 * 14 + 1, 768)
-    assert np.all(pos[0] == 0.0)  # cls row is zeros
+    assert np.all(pos[0] == 0.0)
 
 
 def test_encoder_builds_and_runs():
@@ -41,12 +32,6 @@ def test_classifier_and_segmenter():
     m = keras.ops.convert_to_numpy(seg(x))
     assert m.shape == (1, 224, 224, 3)
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against the official architecture
-# (timm-style ViT blocks + `get_3d_sincos_pos_embed`), matching the
-# convention `build_vit_mapper` assumes.
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -106,7 +91,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.norm = nn.LayerNorm(embed_dim, eps=1e-6)
 
         def forward(self, x):
-            # x: (B, C, T, H, W)
             x = self.patch_embed.proj(x)
             B = x.shape[0]
             x = x.flatten(2).transpose(1, 2)
@@ -145,7 +129,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     with torch.no_grad():
         torch_out = torch_model(torch.from_numpy(x_np)).numpy()
 
-    keras_in = np.transpose(x_np, (0, 2, 3, 4, 1))  # -> (B, T, H, W, C)
+    keras_in = np.transpose(x_np, (0, 2, 3, 4, 1))
     keras_out = keras.ops.convert_to_numpy(keras_model(keras_in, training=False))
 
     max_diff = np.abs(torch_out - keras_out).max()
@@ -154,10 +138,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
 @pytest.mark.pretrained
 def test_real_pretrained_prithvi_eo_100m_checkpoint():
-    """Downloads the real `ibm-nasa-geospatial/Prithvi-EO-1.0-100M`
-    checkpoint and confirms the encoder loads cleanly. Run explicitly with
-    `pytest -m pretrained` (network + ~450MB download, cached after the
-    first run)."""
     pytest.importorskip("torch")
     from keras_climate.weights.pretrained import prithvi_eo_100m
 
@@ -173,10 +153,6 @@ def test_real_pretrained_prithvi_eo_100m_checkpoint():
 
 @pytest.mark.pretrained
 def test_real_pretrained_prithvi_eo_v2_300m_checkpoint():
-    """Downloads the real `ibm-nasa-geospatial/Prithvi-EO-2.0-300M`
-    checkpoint (embed_dim=1024, depth=24) and confirms the encoder loads
-    cleanly. Run explicitly with `pytest -m pretrained` (network +
-    ~1.33GB download, cached after the first run)."""
     pytest.importorskip("torch")
     from keras_climate.weights.pretrained import prithvi_eo_v2_300m
 

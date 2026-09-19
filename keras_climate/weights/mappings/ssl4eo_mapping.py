@@ -1,14 +1,3 @@
-"""
-Mapping for `keras_climate.remote_sensing.ssl4eo.SSL4EOResNet50`. The
-backbone is `resnet_backbone(..., output_stride=32)` from
-`deeplabv3plus.py`, which follows the same torchvision-standard
-`conv1`/`bn1`/`layer{1..4}.{i}...` state_dict naming as DeepLabV3+'s
-backbone - so `build_resnet_backbone_mapper` (shared with that module)
-already covers every rule; this just wraps it as a standalone
-`torch_key -> keras_key` callable with `keras_prefix="backbone"` to match
-`SSL4EOResNet50`'s naming.
-"""
-
 import re
 
 from keras_climate.weights.mappings.deeplabv3plus_mapping import build_resnet_backbone_mapper

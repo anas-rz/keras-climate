@@ -1,30 +1,7 @@
-"""
-Mapping for `keras_climate.weather.earthformer.Earthformer`.
-
-Important caveat: the *officially released* Earthformer checkpoints
-(amazon-science/earth-forecasting-transformer, hosted at
-`earthformer.s3.amazonaws.com/pretrained_checkpoints/...`) are no longer
-publicly reachable (the bucket now returns 403 Forbidden for anonymous
-requests) - so there is no live official checkpoint to target. This mapper
-instead targets this repo's own architecture (a simplified hierarchical
-Cuboid-Attention U-Net capturing Earthformer's core idea, not a byte-exact
-reimplementation of the paper's full CuboidTransformer), for porting
-weights from a from-scratch model trained with this exact architecture.
-
-Each `CuboidTransformerBlock` follows the same timm-style ViT block naming
-(`norm1`, `attn.qkv`, `attn.proj`, `norm2`, `mlp.fc1`, `mlp.fc2`) as most
-other transformer blocks in this repo, but note the Keras layer names are
-*flat*, underscore-joined per stage (`enc_stage{i}_block{j}`,
-`dec_stage{i}_block{j}`) rather than nested scopes - so this mapper writes
-the block rules directly instead of reusing `build_vit_mapper` (which
-always joins its prefix and block name with "/").
-"""
-
 import re
 
 
 def _block_rules(torch_stage_prefix, keras_stage_prefix, depth):
-    """`{torch_stage_prefix}.blocks.{j}...` -> `{keras_stage_prefix}_block{j}/...`"""
     rules = []
     for j in range(depth):
         tp, kp = f"{torch_stage_prefix}.blocks.{j}", f"{keras_stage_prefix}_block{j}"
@@ -46,16 +23,6 @@ def _block_rules(torch_stage_prefix, keras_stage_prefix, depth):
 
 
 def build_earthformer_mapper(num_enc_stages, num_dec_stages, enc_depths=None, dec_depths=None):
-    """torch_key -> keras_key mapper, assuming a source checkpoint using
-    this repo's own naming convention: `stem.conv.{weight,bias}`,
-    `enc_stage{i}.blocks.{j}...` / `dec_stage{i}.blocks.{j}...` (standard
-    ViT block, see module docstring), `downsample{i}.conv.{weight,bias}`,
-    `upsample{i}.conv.{weight,bias}`, `skip_proj{i}.conv.{weight,bias}`,
-    `time_channel_proj.{weight,bias}`.
-
-    `enc_depths`/`dec_depths` (defaulting to 1 block per stage if omitted)
-    must match how many `CuboidTransformerBlock`s each stage of the target
-    `Earthformer(...)` model actually has."""
     enc_depths = enc_depths or [1] * num_enc_stages
     dec_depths = dec_depths or [1] * num_dec_stages
 

@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.remote_sensing.satmae` (SatMAE / SatMAEEncoder / SatMAEDecoder).
-
-Run with: pytest keras_climate/remote_sensing/test_satmae.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -12,10 +7,6 @@ from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_satmae_mapper
 from keras_climate.weights.pretrained import satmae_vit_base_mae
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_single_mode_mae_pretraining_forward():
     model = SatMAE(img_size=64, patch_size=16, in_chans=3, embed_dim=32, depth=2, num_heads=4,
@@ -29,9 +20,6 @@ def test_single_mode_mae_pretraining_forward():
 
 @pytest.mark.parametrize("mode,kwarg", [("multispectral", "num_groups"), ("temporal", "num_frames")])
 def test_multi_group_modes_forward(mode, kwarg):
-    """Regression check: the decoder's positional embedding must handle a
-    token count that is a multiple (not itself a perfect square) of the
-    base per-group/per-frame patch grid."""
     model = SatMAE(img_size=64, patch_size=16, in_chans=3, embed_dim=32, depth=2, num_heads=4,
                    decoder_embed_dim=24, decoder_depth=2, decoder_num_heads=4,
                    mode=mode, **{kwarg: 3})
@@ -43,26 +31,12 @@ def test_multi_group_modes_forward(mode, kwarg):
 
 
 def test_encoder_alone_for_downstream_tasks():
-    """`SatMAEEncoder` used standalone (no masking) - the typical usage for
-    attaching a classification/segmentation head."""
     encoder = SatMAEEncoder(img_size=64, patch_size=16, in_chans=3, embed_dim=32, depth=2, num_heads=4)
     x = np.random.randn(2, 64, 64, 3).astype("float32")
     tokens = encoder(x)
     num_patches = (64 // 16) ** 2
-    assert tuple(tokens.shape) == (2, num_patches + 1, 32)  # +1 for the cls token
+    assert tuple(tokens.shape) == (2, num_patches + 1, 32)
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip: a reference ViT-MAE (encoder + decoder)
-# matching the official facebookresearch/mae state_dict naming (the
-# convention `build_satmae_mapper` assumes) is built, its (random) weights
-# are ported through the real converter + mapping, and the two forward
-# passes are compared numerically end-to-end. Masking is exercised with
-# `mask_ratio=0.0` so the shuffle/unshuffle is a pure (and therefore
-# checkable) round trip: with every patch kept, no mask tokens are
-# inserted and the random shuffle order cancels exactly against its
-# inverse, making the result equal to an unmasked forward pass.
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -195,7 +169,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     x0 = np.zeros((1, img, img, in_chans), dtype="float32")
     tok0, mask0, ids0 = encoder(x0, apply_masking=True, mask_ratio=0.0)
-    decoder(tok0, ids0)  # build
+    decoder(tok0, ids0)
 
     mapper = build_satmae_mapper()
     enc_report = WeightConverter(encoder, state_dict, mapper).convert(strict=False, verbose=False)
@@ -217,11 +191,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
 @pytest.mark.pretrained
 def test_real_pretrained_mae_vit_base_checkpoint():
-    """Downloads Meta AI's real official `mae_visualize_vit_base.pth`
-    (ImageNet-1k MAE, ViT-Base, encoder+decoder) and confirms it loads
-    cleanly and reconstructs sane-looking output. Run explicitly with
-    `pytest -m pretrained` (network + ~450MB download, cached after the
-    first run)."""
     pytest.importorskip("torch")
     encoder, decoder, reports = satmae_vit_base_mae(img_size=224)
     assert not reports["encoder"]["missing_in_source"]

@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.remote_sensing.segformer.SegFormer`.
-
-Run with: pytest keras_climate/remote_sensing/test_segformer.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -13,10 +8,6 @@ from keras_climate.weights.mappings import build_segformer_mapper, build_segform
 from keras_climate.weights.pretrained import segformer_b0_ade20k
 
 
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
-
 @pytest.mark.parametrize("variant", sorted(MIT_CONFIGS))
 def test_builds_and_runs(variant):
     model = SegFormer(input_shape=(128, 128, 3), num_classes=5, variant=variant)
@@ -26,8 +17,6 @@ def test_builds_and_runs(variant):
 
 
 def test_non_multiple_of_32_input_size():
-    """Regression check for the MiT encoder's overlap-patch-embed strides
-    (4, 2, 2, 2 -> total downsample 32) and decode-head upsampling."""
     model = SegFormer(input_shape=(150, 150, 3), num_classes=2, variant="b0")
     x = np.random.randn(1, 150, 150, 3).astype("float32")
     y = model(x)
@@ -41,14 +30,6 @@ def test_final_activation_applied():
     y = keras.ops.convert_to_numpy(model(x))
     assert y.min() >= 0.0 and y.max() <= 1.0
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip: a reference MiT backbone + all-MLP decode
-# head matching the official NVlabs/SegFormer state_dict naming (the
-# convention `build_segformer_mapper` assumes) is built, its (random)
-# weights are ported through the real converter + mapping, and the two
-# forward passes are compared numerically end-to-end.
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -194,7 +175,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
         def forward(self, features, target_hw):
             c1, c2, c3, c4 = features
-            _, _, h4, w4 = c1.shape  # target = stage-1 resolution (H/4, W/4)
+            _, _, h4, w4 = c1.shape
 
             def proj_upsample(feat, layer):
                 B, C, H, W = feat.shape
@@ -271,11 +252,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
 @pytest.mark.pretrained
 def test_real_pretrained_ade20k_checkpoint():
-    """Downloads the real `nvidia/segformer-b0-finetuned-ade-512-512`
-    HuggingFace checkpoint (full encoder + decode head, fine-tuned on
-    ADE20K) and confirms every weight loads cleanly. Run explicitly with
-    `pytest -m pretrained` (network + `transformers` + HF Hub download,
-    cached after the first run)."""
     pytest.importorskip("torch")
     pytest.importorskip("transformers")
     model, report = segformer_b0_ade20k(input_shape=(256, 256, 3))
@@ -284,5 +260,5 @@ def test_real_pretrained_ade20k_checkpoint():
 
     x = np.random.rand(1, 256, 256, 3).astype("float32")
     y = keras.ops.convert_to_numpy(model(x, training=False))
-    assert y.shape == (1, 256, 256, 150)  # ADE20K has 150 classes
+    assert y.shape == (1, 256, 256, 150)
     assert np.isfinite(y).all()

@@ -1,32 +1,9 @@
-"""
-keras_climate.forecasting.nbeats
-------------------------------------
-N-BEATS (Oreshkin et al. 2020, "Neural Basis Expansion Analysis for
-Interpretable Time Series Forecasting"): a deep stack of fully-connected
-blocks. Each block maps the lookback window to a small set of "theta"
-coefficients that parameterize an interpretable basis expansion (generic,
-polynomial trend, or Fourier seasonality), producing both a "backcast"
-(reconstruction of its input, subtracted from the residual seen by later
-blocks) and a "forecast" (added into the running forecast total) - the
-paper's "doubly residual stacking". Operates on a single (univariate)
-series per call, as in the original paper; apply per-channel for
-multivariate series.
-
-No general-purpose pretrained checkpoint exists for N-BEATS (the official
-repo and community reimplementations only ship per-benchmark-dataset
-training scripts) - validated against a from-scratch synthetic PyTorch
-reference of this repo's own basis parameterization (see
-`weights/mappings/nbeats_mapping.py`).
-"""
-
 import numpy as np
 import keras
 from keras import layers, ops
 
 
 class GenericBasis(layers.Layer):
-    """theta split directly into (backcast, forecast) - no fixed basis
-    function, fully learned via the two theta chunks."""
 
     def __init__(self, backcast_size, forecast_size, **kwargs):
         super().__init__(**kwargs)
@@ -38,9 +15,6 @@ class GenericBasis(layers.Layer):
 
 
 class TrendBasis(layers.Layer):
-    """Low-degree polynomial basis over the normalized time index.
-    `theta_size = 2 * (degree + 1)`: the first half are forecast
-    coefficients, the second half backcast coefficients."""
 
     def __init__(self, degree, backcast_size, forecast_size, **kwargs):
         super().__init__(**kwargs)
@@ -71,9 +45,6 @@ class TrendBasis(layers.Layer):
 
 
 class SeasonalityBasis(layers.Layer):
-    """Fourier basis with harmonic frequencies scaled by the forecast
-    horizon. `theta_size = 4 * num_harmonics`: forecast-cos, forecast-sin,
-    backcast-cos, backcast-sin, each `num_harmonics` coefficients."""
 
     def __init__(self, num_harmonics, backcast_size, forecast_size, **kwargs):
         super().__init__(**kwargs)
@@ -107,7 +78,6 @@ class SeasonalityBasis(layers.Layer):
 
 
 class NBeatsBlock(layers.Layer):
-    """`num_fc_layers` ReLU-Dense layers -> theta -> basis(theta)."""
 
     def __init__(self, hidden_dim, num_fc_layers, basis, theta_size, **kwargs):
         super().__init__(**kwargs)
@@ -136,7 +106,6 @@ def _make_basis(stack_type, seq_len, pred_len, trend_degree, num_harmonics, name
 
 def NBeats(seq_len=96, pred_len=24, stack_types=("trend", "seasonality"), num_blocks_per_stack=3,
            hidden_dim=256, num_fc_layers=4, trend_degree=2, num_harmonics=1, name="nbeats"):
-    """Univariate forecaster: `(B, seq_len) -> (B, pred_len)`."""
     inputs = keras.Input(shape=(seq_len,), name="series")
     residual = inputs
     forecast = None

@@ -1,24 +1,3 @@
-"""
-Mapping for `keras_climate.remote_sensing.ringmo.RingMo` (encoder +
-SimMIM decoder). No official RingMo checkpoint is publicly downloadable
-(see `ringmo.py`'s module docstring) - this mapper targets a from-scratch
-PyTorch reference matching this repo's own naming convention:
-
-    patch_embed.conv{1,2}.conv.weight / .bn.{weight,bias,running_mean,running_var}
-    patch_embed.conv3.{weight,bias}
-    patch_embed.norm.{weight,bias}
-    stages.{i}.blocks.{j}.norm1.{weight,bias}
-    stages.{i}.blocks.{j}.attn.qkv.{weight,bias}
-    stages.{i}.blocks.{j}.attn.proj.{weight,bias}
-    stages.{i}.blocks.{j}.attn.relative_position_bias_table
-    stages.{i}.blocks.{j}.norm2.{weight,bias}
-    stages.{i}.blocks.{j}.mlp.fc1.{weight,bias} / mlp.fc2.{weight,bias}
-    stages.{i}.downsample.reduction.weight
-    stages.{i}.downsample.norm.{weight,bias}     (all but the last stage)
-    norm.{weight,bias}                            (encoder's final norm)
-    decoder.{weight,bias}                         (SimMIM 1x1 conv)
-"""
-
 import re
 
 
@@ -107,8 +86,6 @@ def build_ringmo_decoder_mapper(keras_prefix="ringmo_decoder"):
 
 
 def build_ringmo_mapper(depths, encoder_prefix="ringmo_encoder", decoder_prefix="ringmo_decoder"):
-    """Full torch_key -> keras_key mapper for the whole `RingMo(...)`
-    pretraining model (encoder + SimMIM decoder)."""
     encoder_mapper = build_ringmo_encoder_mapper(depths, encoder_prefix)
     decoder_mapper = build_ringmo_decoder_mapper(decoder_prefix)
 

@@ -1,13 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.weather.earthformer`.
-
-The official Earthformer checkpoints are no longer publicly reachable
-(see `weights/mappings/earthformer_mapping.py`'s module docstring) - the
-round-trip test below validates against a from-scratch PyTorch reference
-implementing this repo's own (simplified) architecture instead.
-
-Run with: pytest keras_climate/weather/test_earthformer.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -17,15 +7,8 @@ from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_earthformer_mapper
 
 
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
-
 @pytest.mark.parametrize("strategy", ["local", "dilated"])
 def test_cuboid_partition_reassemble_is_exact_inverse(strategy):
-    """The partition/reassemble reshape+transpose must be a lossless
-    geometric round-trip - any bug here would silently corrupt spatial
-    structure without necessarily crashing."""
     attn = CuboidAttention(dim=4, num_heads=2, cuboid_size=(2, 4, 4), strategy=strategy)
     attn.build((1, 4, 8, 8, 4))
     x = np.random.randn(1, 4, 8, 8, 4).astype("float32")
@@ -50,11 +33,6 @@ def test_different_pred_steps_and_channels():
     assert y.shape == (1, 6, 16, 16, 2)
 
 
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference of this
-# repo's own architecture (see module docstring).
-# --------------------------------------------------------------------------
-
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
     import torch.nn as nn
@@ -65,7 +43,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         if strategy == "local":
             x = x.reshape(B, nt, ct, nh, ch, nw, cw, C)
             x = x.permute(0, 1, 3, 5, 2, 4, 6, 7).contiguous()
-        else:  # "dilated"
+        else:
             x = x.reshape(B, ct, nt, ch, nh, cw, nw, C)
             x = x.permute(0, 2, 4, 6, 1, 3, 5, 7).contiguous()
         return x.reshape(B * nt * nh * nw, ct * ch * cw, C), (B, nt, nh, nw, ct, ch, cw, C)
@@ -75,7 +53,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         x = x.reshape(B, nt, nh, nw, ct, ch, cw, C)
         if strategy == "local":
             x = x.permute(0, 1, 4, 2, 5, 3, 6, 7).contiguous()
-        else:  # "dilated"
+        else:
             x = x.permute(0, 4, 1, 5, 2, 6, 3, 7).contiguous()
         return x.reshape(B, nt * ct, nh * ch, nw * cw, C)
 
@@ -129,8 +107,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     class Stage(nn.Module):
         def __init__(self, dim, num_heads, depth, cuboid_size):
             super().__init__()
-            # Matches `earthformer.py`'s `_stage()`: alternates local/dilated
-            # cuboid attention by block index within a stage.
             self.blocks = nn.ModuleList([
                 Block(dim, num_heads, cuboid_size, strategy="local" if i % 2 == 0 else "dilated")
                 for i in range(depth)
@@ -142,8 +118,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return x
 
     class TorchEarthformer(nn.Module):
-        """Single-stage version (`stage_depths=(depth,)`) - matches the
-        Keras model's structure exactly when there's no downsample/upsample."""
 
         def __init__(self, T_in, H, W, C_in, pred_steps, base_dim, depth, num_heads, cuboid_size):
             super().__init__()
@@ -154,15 +128,14 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.pred_steps, self.base_dim = pred_steps, base_dim
 
         def forward(self, x):
-            # x: (B, T, C, H, W)
             B, T, C, H, W = x.shape
             x = self.stem(x.reshape(B * T, C, H, W)).reshape(B, T, self.base_dim, H, W)
-            x = x.permute(0, 1, 3, 4, 2)  # (B, T, H, W, C)
+            x = x.permute(0, 1, 3, 4, 2)
             x = self.enc_stage0(x)
             x = x.permute(0, 2, 3, 1, 4).reshape(B, H, W, T * self.base_dim)
             x = self.time_channel_proj(x)
             x = x.reshape(B, H, W, self.pred_steps, self.C_in)
-            return x.permute(0, 3, 1, 2, 4)  # (B, pred_steps, H, W, C_in)
+            return x.permute(0, 3, 1, 2, 4)
 
     torch.manual_seed(0)
     T_in, H, W, C_in = 2, 16, 16, 1
@@ -203,9 +176,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     x_np = np.random.randn(1, T_in, C_in, H, W).astype("float32")
     with torch.no_grad():
-        torch_out = torch_model(torch.from_numpy(x_np)).numpy()  # (B, pred_steps, H, W, C_in)
+        torch_out = torch_model(torch.from_numpy(x_np)).numpy()
 
-    keras_in = np.transpose(x_np, (0, 1, 3, 4, 2))  # -> (B, T, H, W, C)
+    keras_in = np.transpose(x_np, (0, 1, 3, 4, 2))
     keras_out = keras.ops.convert_to_numpy(keras_model(keras_in, training=False))
 
     max_diff = np.abs(torch_out - keras_out).max()

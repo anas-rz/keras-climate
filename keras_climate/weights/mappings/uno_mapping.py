@@ -1,16 +1,3 @@
-"""
-Mapping for `keras_climate.operators.uno.UNO`, assuming a source
-checkpoint using this repo's own naming (no checkpoint exists anywhere
-for this architecture - see `uno.py`'s module docstring):
-
-    lift.{weight,bias}
-    enc_block{i}.spectral.{weights1_re,weights1_im,weights2_re,weights2_im}
-    enc_block{i}.pointwise.{weight,bias}
-    bottleneck.spectral.* / bottleneck.pointwise.*
-    dec_block{i}.spectral.* / dec_block{i}.pointwise.*
-    project.{weight,bias}
-"""
-
 import re
 
 

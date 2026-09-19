@@ -1,20 +1,3 @@
-"""
-Mapping for `keras_climate.forecasting.autoformer.Autoformer`, assuming a
-source checkpoint using this repo's own naming (no general-purpose
-checkpoint exists - see `autoformer.py`'s module docstring):
-
-    {enc,dec}_embedding.conv.weight
-    encoder_layer{i}.auto_correlation.{q,k,v,out}_proj.{weight,bias}
-    encoder_layer{i}.conv{1,2}.{weight,bias}
-    decoder_layer{i}.{self,cross}_correlation.{q,k,v,out}_proj.{weight,bias}
-    decoder_layer{i}.conv{1,2}.{weight,bias}
-    decoder_layer{i}.trend_proj.weight
-    projection.{weight,bias}
-
-Series-decomposition layers (`init_decomp`, `decomp{1,2,3}`) have no
-learnable parameters (moving-average pooling only).
-"""
-
 import re
 
 
@@ -59,12 +42,6 @@ def _decoder_layer_rules(i):
 
 
 def build_autoformer_mapper(encoder_layers, decoder_layers):
-    """`enc_embedding`/`dec_embedding` are plain `ValueEmbedding` instances
-    (not wrapped in a `DataEmbedding`, unlike `informer.py` - Autoformer's
-    series decomposition already captures periodicity, so no positional
-    embedding is added), so their conv sits directly under the embedding's
-    own name: `enc_embedding.conv.weight`, not `enc_embedding.
-    value_embedding.conv.weight`."""
     rules = []
     rules += _embedding_rules("enc_embedding", "enc_embedding")
     rules += _embedding_rules("dec_embedding", "dec_embedding")

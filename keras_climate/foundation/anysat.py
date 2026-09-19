@@ -1,26 +1,9 @@
-"""
-keras_climate.foundation.anysat
-------------------------------------
-AnySat (Astruc et al. 2024): a single ViT that ingests an arbitrary set of
-modalities, each at its own native ground-sample distance (GSD) and patch
-size, by projecting every modality's patches into a shared embedding space
-and tagging each token with a learned modality embedding plus a
-resolution-aware position embedding (patch center coordinates scaled by
-GSD, so tokens from different resolutions/modalities are spatially
-comparable). This lets one model jointly consume, e.g., 10m Sentinel-2,
-20m Sentinel-1, and 30m Landsat over the same footprint.
-"""
-
 import keras
 from keras import layers, ops
 from keras_climate.utils.layers import TransformerEncoderBlock, MLP
 
 
 class ModalityPatchEmbed(layers.Layer):
-    """Patch-embeds one modality's imagery at its native patch size, and
-    tags each token with a continuous (x, y) center coordinate in meters
-    (patch_size_px * gsd_m_per_px), so tokens are comparable across
-    modalities regardless of native resolution."""
 
     def __init__(self, embed_dim, patch_size_px, gsd_m, **kwargs):
         super().__init__(**kwargs)
@@ -43,16 +26,13 @@ class ModalityPatchEmbed(layers.Layer):
         ys = (ops.arange(H, dtype="float32") + 0.5) * patch_extent_m
         xs = (ops.arange(W, dtype="float32") + 0.5) * patch_extent_m
         grid_y, grid_x = ops.meshgrid(ys, xs, indexing="ij")
-        coords = ops.stack([ops.reshape(grid_x, (-1,)), ops.reshape(grid_y, (-1,))], axis=-1)  # (H*W, 2)
+        coords = ops.stack([ops.reshape(grid_x, (-1,)), ops.reshape(grid_y, (-1,))], axis=-1)
         coords = ops.broadcast_to(coords[None], (B, H * W, 2))
 
         return tok, coords
 
 
 class ContinuousPositionEncoding(layers.Layer):
-    """Maps a continuous (x, y) coordinate in meters to a `dim`-length
-    embedding via an MLP over sinusoidal features - resolution/modality
-    agnostic, unlike a learned grid position embedding."""
 
     def __init__(self, dim, num_freqs=8, max_freq=1024.0, **kwargs):
         super().__init__(**kwargs)
@@ -61,22 +41,15 @@ class ContinuousPositionEncoding(layers.Layer):
         self.mlp = MLP(dim, dim, name="coord_mlp")
 
     def call(self, coords):
-        # coords: (B, N, 2) in meters
         freqs = self.max_freq ** (ops.arange(self.num_freqs, dtype="float32") / self.num_freqs)
-        args = coords[..., None] / freqs  # (B, N, 2, num_freqs)
-        feats = ops.concatenate([ops.sin(args), ops.cos(args)], axis=-1)  # (B, N, 2, 2*num_freqs)
+        args = coords[..., None] / freqs
+        feats = ops.concatenate([ops.sin(args), ops.cos(args)], axis=-1)
         B, N = ops.shape(coords)[0], ops.shape(coords)[1]
         feats = ops.reshape(feats, (B, N, 4 * self.num_freqs))
         return self.mlp(feats)
 
 
 class AnySatEncoder(keras.Model):
-    """Modality-agnostic ViT encoder.
-
-    `modality_specs`: dict[name -> dict(patch_size_px=int, gsd_m=float)].
-    `call(inputs)` takes a dict[name -> (B, H, W, C) tensor] with only the
-    modalities present for this sample/batch (missing modalities are simply
-    omitted from the dict - no fixed channel layout required)."""
 
     def __init__(self, modality_specs, embed_dim=768, depth=12, num_heads=12,
                  mlp_ratio=4.0, name="anysat_encoder", **kwargs):
@@ -119,8 +92,6 @@ class AnySatEncoder(keras.Model):
 
 def AnySatClassifier(modality_specs, embed_dim=768, depth=12, num_heads=12,
                       input_shapes=None, num_classes=10, name="anysat_classifier"):
-    """`input_shapes`: dict[name -> (H, W, C)] declaring the Keras.Input
-    shape for each modality this particular model instance will accept."""
     inputs = {m: keras.Input(shape=shape, name=m) for m, shape in input_shapes.items()}
     encoder = AnySatEncoder(modality_specs, embed_dim, depth, num_heads, name="encoder")
     tokens = encoder(inputs)

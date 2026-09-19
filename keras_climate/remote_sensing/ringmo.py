@@ -1,27 +1,3 @@
-"""
-keras_climate.remote_sensing.ringmo
----------------------------------------
-RingMo (Sun et al. 2022): a Swin-Transformer-based masked-image-modeling
-foundation model for remote sensing, designed around a masking strategy
-("PI-Mask" - Patch Incomplete Mask) that only zeros a fraction of pixels
-within each masked block rather than the whole block, better preserving
-partial texture/edges of the small, dense objects common in aerial/
-satellite imagery than vanilla MAE/SimMIM block masking.
-
-No official checkpoint is publicly downloadable for RingMo: the paper's
-own repo (a MindSpore implementation targeting Huawei Ascend hardware) has
-never shipped pretrained weights despite multiple long-standing community
-requests, and no credible unofficial reproduction redistributes any either.
-This module is therefore validated against a from-scratch synthetic
-PyTorch reference of its own architecture only (see `test_ringmo.py` and
-`weights/mappings/ringmo_mapping.py`), the same tier used elsewhere in this
-repo for Clay/AnySat/Earthformer/MetNet/PatchTST/TimesNet/TFT. The exact
-patch-embed stem ("pi_conv", a factorized multi-stage conv rather than a
-single non-overlapping conv) is also not documented precisely enough in
-public sources to reproduce byte-exact even if a checkpoint did exist, so
-it is this repo's own reasonable interpretation of the paper's description.
-"""
-
 import numpy as np
 import keras
 from keras import layers, ops
@@ -29,8 +5,6 @@ from keras_climate.utils.layers import ConvBNAct, MLP
 
 
 def window_partition(x, window_size):
-    """(B, H, W, C) -> (num_windows*B, window_size, window_size, C). H and W
-    must be statically known and divisible by `window_size`."""
     B = ops.shape(x)[0]
     H, W, C = x.shape[1], x.shape[2], x.shape[3]
     x = ops.reshape(x, (B, H // window_size, window_size, W // window_size, window_size, C))
@@ -39,7 +13,6 @@ def window_partition(x, window_size):
 
 
 def window_reverse(windows, window_size, H, W):
-    """Inverse of `window_partition`."""
     C = windows.shape[-1]
     nh, nw = H // window_size, W // window_size
     B = ops.shape(windows)[0] // (nh * nw)
@@ -49,22 +22,14 @@ def window_reverse(windows, window_size, H, W):
 
 
 def pixel_shuffle(x, scale):
-    """Depth-to-space: (B, H, W, C*scale^2) -> (B, H*scale, W*scale, C).
-    Matches PyTorch's `nn.functional.pixel_shuffle` element-for-element:
-    torch decomposes its (NCHW) channel axis as (C, r_h, r_w) - C slowest,
-    then r_h, then r_w fastest - so the NHWC channel axis here must
-    decompose the same way (out_c, scale, scale), not (scale, scale,
-    out_c)."""
     B, H, W, C = ops.shape(x)[0], x.shape[1], x.shape[2], x.shape[3]
     out_c = C // (scale * scale)
     x = ops.reshape(x, (B, H, W, out_c, scale, scale))
-    x = ops.transpose(x, (0, 1, 4, 2, 5, 3))  # (B, H, r_h, W, r_w, out_c)
+    x = ops.transpose(x, (0, 1, 4, 2, 5, 3))
     return ops.reshape(x, (B, H * scale, W * scale, out_c))
 
 
 class WindowAttention(layers.Layer):
-    """Multi-head self-attention restricted to non-overlapping windows,
-    with a learned relative position bias (standard Swin Transformer)."""
 
     def __init__(self, dim, window_size, num_heads, qkv_bias=True, **kwargs):
         super().__init__(**kwargs)
@@ -82,19 +47,13 @@ class WindowAttention(layers.Layer):
         rel_coords[:, :, 0] += window_size - 1
         rel_coords[:, :, 1] += window_size - 1
         rel_coords[:, :, 0] *= 2 * window_size - 1
-        self._rel_pos_index_np = rel_coords.sum(-1).astype("int32").reshape(-1)  # (N*N,)
+        self._rel_pos_index_np = rel_coords.sum(-1).astype("int32").reshape(-1)
 
     def build(self, input_shape):
         num_rel = (2 * self.window_size - 1) ** 2
         self.relative_position_bias_table = self.add_weight(
             shape=(num_rel, self.num_heads), initializer="zeros",
             trainable=True, name="relative_position_bias_table")
-        # A plain tensor attribute (rather than `add_weight`) baked in
-        # `build()` breaks under the TF backend: `build()` and `call()` can
-        # be traced in different FuncGraphs, and a raw constant tensor
-        # captured in one graph cannot be referenced from another - unlike
-        # a tracked `Variable`, which is graph-agnostic. Same fix as
-        # `GSDPositionalEmbedding`'s grid buffers in scalemae.py.
         self.rel_pos_index = self.add_weight(
             shape=self._rel_pos_index_np.shape, dtype="int32",
             initializer=keras.initializers.Constant(self._rel_pos_index_np),
@@ -104,18 +63,17 @@ class WindowAttention(layers.Layer):
         super().build(input_shape)
 
     def call(self, x, mask=None):
-        # x: (B_, N, C), B_ = num_windows * B
         B_, N, C = ops.shape(x)[0], self.window_size * self.window_size, self.dim
         qkv = self.qkv(x)
         qkv = ops.reshape(qkv, (B_, N, 3, self.num_heads, self.head_dim))
         qkv = ops.transpose(qkv, (2, 0, 3, 1, 4))
         q, k, v = qkv[0] * self.scale, qkv[1], qkv[2]
 
-        attn = ops.matmul(q, ops.transpose(k, (0, 1, 3, 2)))  # (B_, heads, N, N)
+        attn = ops.matmul(q, ops.transpose(k, (0, 1, 3, 2)))
 
         bias = ops.take(self.relative_position_bias_table, self.rel_pos_index, axis=0)
         bias = ops.reshape(bias, (N, N, self.num_heads))
-        bias = ops.transpose(bias, (2, 0, 1))  # (heads, N, N)
+        bias = ops.transpose(bias, (2, 0, 1))
         attn = attn + bias[None]
 
         if mask is not None:
@@ -132,17 +90,12 @@ class WindowAttention(layers.Layer):
 
 
 class SwinTransformerBlock(layers.Layer):
-    """Pre-norm Swin block: (shifted) window attention + MLP, each with a
-    residual connection."""
 
     def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0,
                  mlp_ratio=4.0, qkv_bias=True, **kwargs):
         super().__init__(**kwargs)
         H, W = input_resolution
         if min(H, W) <= window_size:
-            # Feature map no larger than one window: attend over the whole
-            # map, no point shifting (mirrors the official edge-case fix
-            # for small/late-stage resolutions).
             shift_size = 0
             window_size = min(H, W)
         self.input_resolution = (H, W)
@@ -175,9 +128,6 @@ class SwinTransformerBlock(layers.Layer):
 
     def build(self, input_shape):
         if self._attn_mask_np is not None:
-            # Non-trainable weight, not a plain tensor attribute - see
-            # `WindowAttention.build`'s comment on why (TF backend
-            # FuncGraph scoping across `build()`/`call()`).
             self.attn_mask = self.add_weight(
                 shape=self._attn_mask_np.shape,
                 initializer=keras.initializers.Constant(self._attn_mask_np),
@@ -212,8 +162,6 @@ class SwinTransformerBlock(layers.Layer):
 
 
 class PatchMerging(layers.Layer):
-    """Concatenates each 2x2 neighborhood of tokens then projects
-    4*dim -> 2*dim, halving spatial resolution and doubling channels."""
 
     def __init__(self, input_resolution, dim, **kwargs):
         super().__init__(**kwargs)
@@ -233,8 +181,6 @@ class PatchMerging(layers.Layer):
 
 
 class SwinStage(layers.Layer):
-    """One Swin stage: `depth` blocks (alternating regular/shifted windows)
-    followed by an optional `PatchMerging` downsample."""
 
     def __init__(self, dim, input_resolution, depth, num_heads, window_size,
                  mlp_ratio=4.0, downsample=False, **kwargs):
@@ -256,10 +202,6 @@ class SwinStage(layers.Layer):
 
 
 class RingMoPatchEmbed(layers.Layer):
-    """Factorized 3-stage Conv-BN-GELU stem ("pi_conv") that downsamples by
-    4x total (two stride-2 stages), replacing a plain single-conv patch
-    embed. This repo's own interpretation of RingMo's stem (see module
-    docstring) - only `patch_size=4` is supported."""
 
     def __init__(self, embed_dim, **kwargs):
         super().__init__(**kwargs)
@@ -284,9 +226,6 @@ class RingMoPatchEmbed(layers.Layer):
 
 
 class RingMoEncoder(keras.Model):
-    """Swin-B-style hierarchical backbone (4 stages, doubling channels and
-    halving resolution each stage) for downstream feature extraction.
-    Returns the final-stage token sequence `(B, N_final, embed_dim * 8)`."""
 
     def __init__(self, img_size=192, embed_dim=128, depths=(2, 2, 18, 2),
                  num_heads=(4, 8, 16, 32), window_size=6, mlp_ratio=4.0,
@@ -315,12 +254,6 @@ class RingMoEncoder(keras.Model):
 
 
 class PIMask(layers.Layer):
-    """"Patch Incomplete Mask": within each `mask_patch_size` block, only
-    `inside_ratio` of pixels are actually zeroed - rather than the whole
-    block (vanilla SimMIM/MAE-style masking) - preserving partial texture/
-    edges of small dense objects, per RingMo's stated motivation. Has no
-    learnable weights; used only for MIM pretraining. Returns
-    `(masked_image, mask)`."""
 
     def __init__(self, mask_patch_size=32, mask_ratio=0.6, inside_ratio=0.6, **kwargs):
         super().__init__(**kwargs)
@@ -343,9 +276,6 @@ class PIMask(layers.Layer):
 
 
 class SimMIMDecoder(layers.Layer):
-    """1x1 conv + pixel-shuffle reconstruction head (SimMIM-style), mapping
-    the encoder's final feature grid straight back to full-resolution
-    pixels in one upsample."""
 
     def __init__(self, encoder_stride, in_chans=3, **kwargs):
         super().__init__(**kwargs)
@@ -363,8 +293,6 @@ class SimMIMDecoder(layers.Layer):
 def RingMo(img_size=192, in_chans=3, embed_dim=128, depths=(2, 2, 18, 2),
            num_heads=(4, 8, 16, 32), window_size=6, mlp_ratio=4.0,
            mask_patch_size=32, mask_ratio=0.6, inside_ratio=0.6, name="ringmo"):
-    """Full MIM pretraining model: returns a `keras.Model` outputting
-    `(reconstructed_image, mask)` given an input image."""
     inputs = keras.Input(shape=(img_size, img_size, in_chans), name="image")
     masked, mask = PIMask(mask_patch_size, mask_ratio, inside_ratio, name="pi_mask")(inputs)
 

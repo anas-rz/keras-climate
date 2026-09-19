@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.remote_sensing.scalemae` (ScaleMAE / ScaleMAEEncoder).
-
-Run with: pytest keras_climate/remote_sensing/test_scalemae.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -11,10 +6,6 @@ from keras_climate.remote_sensing.scalemae import ScaleMAE, ScaleMAEEncoder, GSD
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_scalemae_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_builds_and_runs():
     model = ScaleMAE(img_size=64, patch_size=16, in_chans=3, embed_dim=32, depth=2, num_heads=4)
@@ -26,34 +17,20 @@ def test_builds_and_runs():
 
 
 def test_different_gsd_gives_different_positional_embedding():
-    """Regression check for the whole point of ScaleMAE: two identical
-    images at different ground-sample-distances must get different
-    positional embeddings (and therefore different encoder outputs)."""
     pos_embed = GSDPositionalEmbedding(grid_size=4, dim=32)
     res_a = np.array([0.3, 0.3], dtype="float32")
     res_b = np.array([0.3, 3.0], dtype="float32")
     out = keras.ops.convert_to_numpy(pos_embed(res_b))
     out_a = keras.ops.convert_to_numpy(pos_embed(res_a))
-    # sample 0 uses the same res in both (0.3) -> identical embedding
     assert np.allclose(out[0], out_a[0])
-    # sample 1 uses a different res (3.0 vs 0.3) -> different embedding
     assert not np.allclose(out[1], out_a[1])
 
 
 def test_cls_token_position_is_always_zero():
-    """The GSD embedding prepends a zero row for the cls token regardless
-    of `res` (matching the official implementation's `torch.zeros` prefix,
-    since the cls token has no spatial location)."""
     pos_embed = GSDPositionalEmbedding(grid_size=4, dim=16)
     out = keras.ops.convert_to_numpy(pos_embed(np.array([0.1, 9.9], dtype="float32")))
     assert np.allclose(out[:, 0, :], 0.0)
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference matching
-# the official facebookresearch/scale-mae encoder (GSD-aware positional
-# embedding computed live from `res`, standard ViT blocks otherwise).
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -100,19 +77,18 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return x
 
     def gsd_pos_embed(grid_size, dim, res):
-        # res: (B,) numpy array of meters/pixel
         grid_h, grid_w = np.meshgrid(np.arange(grid_size, dtype=np.float32),
                                       np.arange(grid_size, dtype=np.float32), indexing="ij")
-        grid_h, grid_w = grid_h.reshape(-1), grid_w.reshape(-1)  # (N,)
+        grid_h, grid_w = grid_h.reshape(-1), grid_w.reshape(-1)
         omega = 1.0 / (10000 ** (np.arange(dim // 4, dtype=np.float32) / (dim / 4.0)))
 
-        gh = grid_h[None, :] * res[:, None]  # (B, N)
+        gh = grid_h[None, :] * res[:, None]
         gw = grid_w[None, :] * res[:, None]
         out_h = gh[..., None] * omega[None, None, :]
         out_w = gw[..., None] * omega[None, None, :]
         emb_h = np.concatenate([np.sin(out_h), np.cos(out_h)], axis=-1)
         emb_w = np.concatenate([np.sin(out_w), np.cos(out_w)], axis=-1)
-        pos = np.concatenate([emb_h, emb_w], axis=-1)  # (B, N, dim)
+        pos = np.concatenate([emb_h, emb_w], axis=-1)
         cls_pos = np.zeros((res.shape[0], 1, dim), dtype=np.float32)
         return np.concatenate([cls_pos, pos], axis=1)
 
@@ -156,10 +132,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     mapper = build_scalemae_mapper()
     report = WeightConverter(encoder, state_dict, mapper).convert(strict=False, verbose=False)
-    # `pos_embed/{grid_h,grid_w,omega}` are non-trainable buffers derived
-    # purely from `grid_size`/`dim` config (see `GSDPositionalEmbedding`),
-    # not real checkpoint weights - they have no source-key counterpart by
-    # design, unlike every other weight in the model.
     assert set(report["missing_in_source"]) == {
         "scalemae_encoder/pos_embed/grid_h",
         "scalemae_encoder/pos_embed/grid_w",
@@ -181,16 +153,10 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
 @pytest.mark.pretrained
 def test_real_pretrained_scalemae_vitlarge_fmow():
-    """Downloads the real official ScaleMAE ViT-Large/16 encoder (TorchGeo's
-    clean re-export of the fMoW-RGB 800-epoch checkpoint) and confirms it
-    loads cleanly. Run explicitly with `pytest -m pretrained` (network +
-    ~1.2GB download, cached after the first run)."""
     pytest.importorskip("torch")
     from keras_climate.weights.pretrained import scalemae_vitlarge_fmow
 
     encoder, report = scalemae_vitlarge_fmow(img_size=224)
-    # `pos_embed/{grid_h,grid_w,omega}` are derived, non-trainable buffers
-    # with no source-key counterpart by design (see `GSDPositionalEmbedding`).
     assert set(report["missing_in_source"]) == {
         "scalemae_encoder/pos_embed/grid_h",
         "scalemae_encoder/pos_embed/grid_w",

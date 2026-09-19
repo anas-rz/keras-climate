@@ -1,30 +1,7 @@
-"""
-Mapping for `keras_climate.weather.pangu_weather.PanguWeather`, targeting
-the real checkpoint converted by github.com/zhaoshan2/pangu-pytorch (see
-`weights/pretrained.py`'s `pangu_weather_24` loader). That checkpoint's
-own key naming is reused directly by this repo's Keras layers (see
-`pangu_weather.py`'s module docstring for why), so this mapper is a
-close-to-literal dot-to-slash translation.
-
-One real preprocessing step, handled by `convert_pangu_weather_state_dict`
-rather than `WeightConverter`'s generic shape-inference: the patch-embed/
-patch-recovery `conv`/`conv_surface` weights are `nn.Conv1d(..., kernel_
-size=1)` kernels, shape `(out, in, 1)` - equivalent to a plain Dense
-layer (a kernel_size=1 conv IS a per-position linear map) once the
-trailing size-1 axis is squeezed to `(out, in)`, at which point it
-matches `WeightConverter`'s existing `(out, in) -> (in, out)` Dense-
-kernel transpose heuristic exactly. Everything else needs no special
-handling.
-"""
-
 import re
 
 
 def convert_pangu_weather_state_dict(flat_state_dict):
-    """Squeezes the trailing kernel_size=1 axis off every `conv`/
-    `conv_surface` weight (patch embed + patch recovery), turning a
-    `(out, in, 1)` Conv1d kernel into a `(out, in)` array WeightConverter
-    already knows how to transpose into a Dense kernel."""
     out = {}
     for k, v in flat_state_dict.items():
         if k.endswith((".conv.weight", ".conv_surface.weight")) and v.ndim == 3 and v.shape[-1] == 1:

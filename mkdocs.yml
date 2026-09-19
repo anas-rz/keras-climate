@@ -1,0 +1,53 @@
+site_name: keras_climate
+site_description: A Keras 3 framework of models for climate modeling and Earth observation
+site_url: https://anas-rz.github.io/keras-climate/
+repo_url: https://github.com/anas-rz/keras-climate
+repo_name: anas-rz/keras-climate
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Quick Start: quickstart.md
+  - Models:
+      - Remote Sensing: models/remote-sensing.md
+      - Forecasting: models/forecasting.md
+      - Weather: models/weather.md
+      - Foundation Models: models/foundation.md
+      - Neural Operators: models/operators.md
+  - Weight Porting: weight-porting.md
+  - Pretrained Weights: pretrained-weights.md
+  - Implementation Notes: notes.md

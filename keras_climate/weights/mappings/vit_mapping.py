@@ -1,42 +1,7 @@
-"""
-Generic ViT-style mapping builder. Most of this repo's transformer-based
-models (SatMAE, Prithvi, CROMA's per-modality encoders, AnySat) use the
-same `TransformerEncoderBlock` from `keras_climate.utils.layers`, which in
-turn matches the near-universal HuggingFace/timm ViT naming convention on
-the PyTorch side:
-
-    blocks.{i}.norm1.{weight,bias}
-    blocks.{i}.attn.qkv.{weight,bias}
-    blocks.{i}.attn.proj.{weight,bias}
-    blocks.{i}.norm2.{weight,bias}
-    blocks.{i}.mlp.fc1.{weight,bias}
-    blocks.{i}.mlp.fc2.{weight,bias}
-    cls_token / pos_embed / patch_embed.proj.{weight,bias} / norm.{weight,bias}
-
-This module builds the corresponding regex rules for a given Keras model
-name prefix + block-name pattern, so you don't have to hand-write 12-24
-near-identical block mappings per model.
-"""
-
 import re
 
 
 def build_vit_mapper(keras_prefix, block_name_fn=None, extra_rules=None):
-    """
-    Args:
-        keras_prefix: the Keras model's top-level scope, e.g.
-            "satmae_encoder" or "prithvi_classifier/encoder". Should match
-            the start of `weight.path` for this model's weights.
-        block_name_fn: optional `i -> str` giving the Keras block layer name
-            if it differs from the default f"block{i}" used by
-            `TransformerEncoderBlock` instances in this repo.
-        extra_rules: additional (regex, replacement) rules checked first,
-            for model-specific tokens (e.g. SegFormer's Mix-FFN naming, or
-            Clay's band/geo embeddings) that don't fit the generic ViT
-            pattern below.
-
-    Returns a `torch_key -> keras_key | None` callable.
-    """
     block_name_fn = block_name_fn or (lambda i: f"block{i}")
 
     rules = list(extra_rules or [])

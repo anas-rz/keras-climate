@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.forecasting.patchtst`.
-
-Run with: pytest keras_climate/forecasting/test_patchtst.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -11,10 +6,6 @@ from keras_climate.forecasting.patchtst import PatchTST, RevIN
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_patchtst_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_builds_and_runs():
     model = PatchTST(seq_len=96, pred_len=24, num_channels=3, patch_len=16, stride=8,
@@ -25,8 +16,6 @@ def test_builds_and_runs():
 
 
 def test_end_padding_adds_one_patch():
-    """`padding_patch="end"` (the default, matching the official
-    implementation) must yield exactly one more patch than no padding."""
     common = dict(seq_len=96, pred_len=24, num_channels=3, patch_len=16, stride=8,
                   d_model=16, depth=1, num_heads=2)
     padded = PatchTST(**common, padding_patch="end")
@@ -37,9 +26,6 @@ def test_end_padding_adds_one_patch():
 
 
 def test_revin_weights_are_tracked_and_trainable():
-    """Regression check: RevIN's affine params must be real Functional-graph
-    weights (not just internally-used Python attributes invisible to
-    `model.weights`/`model.fit()` - see patchtst.py's RevIN docstring)."""
     model = PatchTST(seq_len=48, pred_len=12, num_channels=2, patch_len=8, stride=4,
                       d_model=16, depth=1, num_heads=2)
     revin_weight_names = [w.path for w in model.weights if "revin" in w.path]
@@ -48,9 +34,6 @@ def test_revin_weights_are_tracked_and_trainable():
 
 
 def test_positional_embedding_is_tracked_and_trainable():
-    """Regression check: the positional embedding must be a real
-    Functional-graph layer (not an `Embedding` fed a non-symbolic constant
-    index array - see patchtst.py's LearnedPositionalEmbedding docstring)."""
     model = PatchTST(seq_len=48, pred_len=12, num_channels=2, patch_len=8, stride=4,
                       d_model=16, depth=1, num_heads=2)
     assert model.get_layer("pos_embed") in model.layers
@@ -64,13 +47,6 @@ def test_revin_denormalize_inverts_normalize():
     denormed = keras.ops.convert_to_numpy(revin(normed, mode="denorm"))
     assert np.allclose(denormed, x, atol=1e-4)
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference of this
-# repo's own architecture (see weights/mappings/patchtst_mapping.py's
-# module docstring: no small, directly-downloadable, architecture-matching
-# official checkpoint exists).
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -148,12 +124,11 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.pred_len = pred_len
 
         def forward(self, x):
-            # x: (B, L, C)
             x = self.revin.norm(x)
-            x = x.transpose(1, 2)  # (B, C, L)
+            x = x.transpose(1, 2)
             last = x[:, :, -1:].expand(-1, -1, self.stride)
             x = torch.cat([x, last], dim=-1)
-            patches = x.unfold(dimension=-1, size=self.patch_len, step=self.stride)  # (B, C, num_patches, patch_len)
+            patches = x.unfold(dimension=-1, size=self.patch_len, step=self.stride)
             B, C, P, PL = patches.shape
             patches = patches.reshape(B * C, P, PL)
             tokens = self.patch_proj(patches) + self.pos_embed[None]
@@ -161,7 +136,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
                 tokens = blk(tokens)
             tokens = self.encoder_norm(tokens)
             flat = tokens.reshape(B * C, -1)
-            head = self.forecast_head(flat)  # (B*C, pred_len)
+            head = self.forecast_head(flat)
             out = head.reshape(B, C, self.pred_len).transpose(1, 2)
             return self.revin.denorm(out)
 

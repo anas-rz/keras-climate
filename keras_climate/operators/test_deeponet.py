@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.operators.deeponet`.
-
-Run with: pytest keras_climate/operators/test_deeponet.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -11,10 +6,6 @@ from keras_climate.operators.deeponet import DeepONet
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_deeponet_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_builds_and_runs():
     model = DeepONet(num_sensors=50, coord_dim=2, branch_units=(32, 16), trunk_units=(32, 16))
@@ -28,12 +19,6 @@ def test_mismatched_final_widths_raises():
     with pytest.raises(AssertionError):
         DeepONet(num_sensors=10, coord_dim=1, branch_units=(8, 16), trunk_units=(8, 8))
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference matching
-# this repo's own naming/architecture (no verifiable real checkpoint
-# exists - see module docstring).
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")

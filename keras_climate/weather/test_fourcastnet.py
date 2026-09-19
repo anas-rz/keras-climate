@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.weather.fourcastnet`.
-
-Run with: pytest keras_climate/weather/test_fourcastnet.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -11,10 +6,6 @@ from keras_climate.weather.fourcastnet import FourCastNet
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_fourcastnet_mapper, convert_fourcastnet_state_dict
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_builds_and_runs():
     model = FourCastNet(img_size=(32, 32), patch_size=4, in_chans=5, out_chans=5,
@@ -31,11 +22,6 @@ def test_non_square_grid():
     y = keras.ops.convert_to_numpy(model(x))
     assert y.shape == (1, 16, 32, 3)
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference matching
-# the official NVlabs FourCastNet/AFNO naming.
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -116,12 +102,12 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.head = nn.Linear(embed_dim, patch_size * patch_size * out_chans, bias=False)
 
         def forward(self, x):
-            x = self.patch_embed.proj(x).permute(0, 2, 3, 1)  # (B, gh, gw, C)
+            x = self.patch_embed.proj(x).permute(0, 2, 3, 1)
             x = x + self.pos_embed.reshape(1, self.grid_h, self.grid_w, -1)
             for blk in self.blocks:
                 x = blk(x)
             x = self.norm(x)
-            x = self.head(x)  # (B, gh, gw, p*p*out_chans)
+            x = self.head(x)
             B = x.shape[0]
             p, oc = self.patch_size, self.out_chans
             x = x.reshape(B, self.grid_h, self.grid_w, p, p, oc)
@@ -139,8 +125,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         for p in torch_model.parameters():
             p.normal_(0.0, 0.2)
 
-    # Mirror the official checkpoint's "module." DDP-wrapper prefix +
-    # flattened pos_embed, both handled by `convert_fourcastnet_state_dict`.
     raw_state_dict = {f"module.{k}": v.detach().numpy() for k, v in torch_model.state_dict().items()}
     grid_h, grid_w = H // patch_size, W // patch_size
     state_dict = convert_fourcastnet_state_dict(raw_state_dict, grid_h, grid_w)
@@ -156,9 +140,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     x_np = np.random.randn(2, in_chans, H, W).astype("float32")
     with torch.no_grad():
-        # TorchFourCastNet's own forward already permutes to channels-last
-        # right after the patch conv and stays there (matching Keras
-        # throughout), so its output is NHWC already - no final permute.
         torch_out = torch_model(torch.from_numpy(x_np)).numpy()
 
     keras_in = np.transpose(x_np, (0, 2, 3, 1))
@@ -170,10 +151,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
 @pytest.mark.pretrained
 def test_real_pretrained_fourcastnet_backbone():
-    """Downloads NVIDIA's real official FourCastNet backbone checkpoint
-    (mirrored non-interactively at NERSC) and confirms it loads cleanly.
-    Run explicitly with `pytest -m pretrained` (network + ~855MB download,
-    cached after the first run)."""
     pytest.importorskip("torch")
     from keras_climate.weights.pretrained import fourcastnet_backbone
 

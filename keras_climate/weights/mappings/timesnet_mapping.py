@@ -1,24 +1,7 @@
-"""
-Mapping for `keras_climate.forecasting.timesnet.TimesNet`.
-
-No original-paper (thuml) TimesNet checkpoint is directly, publicly
-downloadable as a single small file (the library's own "reproduced
-checkpoints" are for classification tasks, linked from a GitHub issue
-rather than hosted for direct download) - this mapper targets this
-repo's own architecture instead, for porting weights from a from-scratch
-model trained with this exact architecture.
-"""
-
 import re
 
 
 def build_timesnet_mapper(num_layers, num_kernels, use_revin=True):
-    """torch_key -> keras_key mapper, assuming a source checkpoint using
-    this repo's own naming: `revin.affine_weight/affine_bias`,
-    `value_embed.{weight,bias}`, `timesblock{i}.conv{1,2}.convs.{k}.
-    {weight,bias}` (one `InceptionBlockV1` per TimesBlock, `num_kernels`
-    parallel convs each), `norm{i}.{weight,bias}`, `predict_linear.
-    {weight,bias}`, `output_proj.{weight,bias}`."""
     rules = [
         (r"^value_embed\.weight$", "value_embed/kernel"),
         (r"^value_embed\.bias$", "value_embed/bias"),

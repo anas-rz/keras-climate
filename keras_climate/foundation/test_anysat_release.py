@@ -1,22 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.foundation.anysat_release` - the faithful port of the
-*officially released* AnySat architecture (see that module's docstring;
-`keras_climate.foundation.anysat`/`test_anysat.py` cover this repo's own,
-deliberately different, simpler design).
-
-The round-trip test below builds a compact from-scratch PyTorch mirror of
-the *real* gastruc/AnySat architecture (image + time-series projectors,
-iRPE-on-keys local/cross attention with the "only head 0's queries
-contribute" `torch.gather` broadcasting quirk the real checkpoint was
-trained against, a plain global transformer) at small dimensions, and
-checks the Keras port matches it via `WeightConverter` +
-`build_anysat_release_mapper` to float32 precision. This mirrors how
-`pretrained.anysat_base()`'s real-checkpoint load was independently
-validated end-to-end (to ~1e-6) against the actual `g-astruc/AnySat`
-release during development - see that function's docstring.
-
-Run with: pytest keras_climate/foundation/test_anysat_release.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -28,10 +9,6 @@ from keras_climate.foundation.anysat_release import (
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_anysat_release_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_all_modalities_have_projector_configs():
     cfgs = anysat_projector_configs(768)
@@ -101,11 +78,6 @@ def test_configs_have_expected_base_size():
     assert ANYSAT_CONFIGS["base"] == dict(embed_dim=768, depth=6, num_heads=12)
 
 
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip test against a from-scratch mirror of the
-# *real* gastruc/AnySat architecture (not this repo's own `AnySatEncoder`).
-# --------------------------------------------------------------------------
-
 def test_weight_port_roundtrip_matches_pytorch_reference():
     import math
     torch = pytest.importorskip("torch")
@@ -140,12 +112,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return self.mlp(t)
 
     class LTAE2dCore(nn.Module):
-        """Mirrors `LTAE2d`'s own submodule nesting (`patch_embed.*` in the
-        real checkpoint), which `build_anysat_release_mapper` expects."""
 
         def __init__(self, dim, in_channels, n_head, d_k, T):
             super().__init__()
-            # matches `anysat_projector_configs`'s real formula/groups
             mlp_in = [dim // 8, dim // 2, dim, dim * 2, dim]
             self.n_head, self.d_k, self.T = n_head, d_k, T
             self.d_model = mlp_in[-1]
@@ -225,8 +194,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         return pe, grid_aug
 
     def bucket_ids(height, width, skip=1):
-        # iRPE (Euclidean method) relative-distance buckets - matches
-        # gastruc/AnySat's `irpe.get_bucket_ids_2d(method="euc", ...)`.
         ratio = 1.9
         alpha, beta, gamma = ratio, 2 * ratio, 8 * ratio
         beta_int = int(beta)
@@ -238,7 +205,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         dis = diff.square().sum(-1).sqrt().round()
         idx = dis.round()
         mask = dis.abs() > alpha
-        # Euclidean distances are >= 0, so sign(dis) is always +1 here.
         inner = alpha + torch.log(dis[mask] / alpha) / math.log(gamma / alpha) * (beta - alpha)
         idx[mask] = inner.round().clamp(max=beta)
         bucket = (idx + beta_int).long()
@@ -253,13 +219,8 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.lookup_table_weight = nn.Parameter(torch.zeros(1, head_dim, num_buckets))
 
         def forward(self, q, bucket):
-            # Only head 0's queries contribute, broadcast across all heads
-            # when added to the attention scores - matches a `torch.gather`
-            # broadcasting quirk in the real reference implementation's
-            # pure-Python RPE fallback path that the released checkpoint's
-            # weights were trained against (see module docstring).
             B, num_buckets = q.shape[0], self.lookup_table_weight.shape[-1]
-            lookup = torch.einsum("bld,dn->bln", q[:, 0], self.lookup_table_weight[0])  # (B, Lq, num_buckets)
+            lookup = torch.einsum("bld,dn->bln", q[:, 0], self.lookup_table_weight[0])
             Lq, Lk = bucket.shape
             offset = torch.arange(Lq).view(-1, 1) * num_buckets
             flat_idx = (bucket + offset).flatten().unsqueeze(0).unsqueeze(0).expand(B, 1, -1)
@@ -310,12 +271,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             super().__init__()
             self.dim = dim
             self.cls_token = nn.Parameter(torch.zeros(1, 1, dim))
-            # eps=1e-5 (torch's LayerNorm default): unlike `AnyModule`'s own
-            # blocks (global + cross-pooling, eps=1e-6), the real
-            # `TransformerMulti` leaves `norm_layer=nn.LayerNorm` at its
-            # default eps - see `AnySatLocalEncoder`'s comment for why this
-            # matters (invisible with random weights, large real divergence
-            # with trained ones).
             self.predictor_blocks = nn.ModuleList([Block(dim, num_heads, rpe=True, eps=1e-5) for _ in range(depth)])
             self.predictor_norm = nn.LayerNorm(dim, eps=1e-5)
 
@@ -368,10 +323,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.projector_s2 = TSProjector(dim, **s2_cfg)
             self.spatial_encoder = LocalEncoder(dim, depth, num_heads)
             self.cls_token = nn.Parameter(torch.zeros(1, 1, dim))
-            # matches the real `AnyModule.blocks`: `depth` plain Blocks
-            # followed by one CrossBlockMulti pooling block, as a single
-            # ModuleList (`blocks.{depth}...` = the cross block, per
-            # `build_anysat_release_mapper`).
             self.blocks = nn.ModuleList([Block(dim, num_heads, rpe=False) for _ in range(depth)]
                                          + [CrossPool(dim, num_heads)])
             self.input_res = input_res
@@ -410,7 +361,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     dim, num_heads, depth, scale = 32, 4, 2, 2
     aerial_cfg = dict(patch_size=10, in_chans=4, resolution=0.2)
-    s2_cfg = dict(in_channels=10, n_head=16, d_k=8, T=100, reduce_scale=1)  # n_head/d_k are fixed by AnySatRelease
+    s2_cfg = dict(in_channels=10, n_head=16, d_k=8, T=100, reduce_scale=1)
     input_res = {"aerial": 2, "s2": 10}
 
     torch_model = TorchAnySatRelease(dim, depth, num_heads, aerial_cfg, s2_cfg, input_res)
@@ -419,7 +370,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         p.data.normal_(0, 0.3)
 
     B = 2
-    img = 5 * 4 * aerial_cfg["patch_size"]  # gs=5, 4 tiles/side, scale=2 -> 2 patches/side
+    img = 5 * 4 * aerial_cfg["patch_size"]
     x_aerial = torch.randn(B, 4, img, img)
     T = 5
     x_s2 = torch.randn(B, T, 10, 4, 4)

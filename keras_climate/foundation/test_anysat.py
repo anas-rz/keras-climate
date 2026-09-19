@@ -1,17 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.foundation.anysat`.
-
-Important caveat (see `weights/mappings/anysat_mapping.py`'s module
-docstring): the *officially released* AnySat checkpoint uses a
-substantially more complex, config-driven architecture (per-modality
-projector zoo, patch dropout, a cross-modal relative-position-encoding
-block) than `AnySatEncoder` implements here. This test validates the
-weight-porting *infrastructure* against a from-scratch PyTorch mirror of
-this repo's own (simpler, self-consistent) design - it does not port the
-real public AnySat checkpoint.
-
-Run with: pytest keras_climate/foundation/test_anysat.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -20,10 +6,6 @@ from keras_climate.foundation.anysat import AnySatEncoder, AnySatClassifier
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_anysat_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_encoder_builds_and_runs_with_multiple_modalities():
     specs = {"s2": {"patch_size_px": 8, "gsd_m": 10.0}, "s1": {"patch_size_px": 4, "gsd_m": 20.0}}
@@ -44,8 +26,6 @@ def test_classifier():
 
 
 def test_missing_modality_is_simply_omitted():
-    """A given batch can supply only a subset of the modalities the
-    encoder was configured for - this is the whole point of the design."""
     specs = {"s2": {"patch_size_px": 8, "gsd_m": 10.0}, "s1": {"patch_size_px": 4, "gsd_m": 20.0}}
     encoder = AnySatEncoder(specs, embed_dim=32, depth=1, num_heads=4)
     out_both = encoder({"s2": np.random.randn(1, 32, 32, 4).astype("float32"),
@@ -53,12 +33,6 @@ def test_missing_modality_is_simply_omitted():
     out_s2_only = encoder({"s2": np.random.randn(1, 32, 32, 4).astype("float32")})
     assert out_both.shape[1] > out_s2_only.shape[1]
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch mirror of this
-# repo's own AnySatEncoder design (see module docstring: this is not the
-# officially released AnySat checkpoint's architecture).
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -142,9 +116,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             B = None
             for modality, tensor in inputs.items():
                 spec = self.modality_specs[modality]
-                tok = self.embeds[modality](tensor)  # (B, D, H, W)
+                tok = self.embeds[modality](tensor)
                 B, D, H, W = tok.shape
-                tok = tok.flatten(2).transpose(1, 2)  # (B, HW, D)
+                tok = tok.flatten(2).transpose(1, 2)
                 patch_extent = spec["patch_size_px"] * spec["gsd_m"]
                 ys = (torch.arange(H).float() + 0.5) * patch_extent
                 xs = (torch.arange(W).float() + 0.5) * patch_extent
@@ -188,7 +162,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_model = AnySatEncoder(specs, embed_dim=embed_dim, depth=depth, num_heads=num_heads,
                                  name="anysat_encoder")
     keras_model({"s2": np.zeros((1, 32, 32, 4), dtype="float32"),
-                 "s1": np.zeros((1, 16, 16, 2), dtype="float32")})  # build
+                 "s1": np.zeros((1, 16, 16, 2), dtype="float32")})
 
     mapper = build_anysat_mapper(list(specs), keras_prefix="anysat_encoder")
     report = WeightConverter(keras_model, flat, mapper).convert(strict=True, verbose=False)

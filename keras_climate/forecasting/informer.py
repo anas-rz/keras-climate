@@ -1,41 +1,9 @@
-"""
-keras_climate.forecasting.informer
---------------------------------------
-Informer (Zhou et al. 2021, AAAI Best Paper): an efficient long-sequence
-Transformer forecaster built around three ideas: (1) ProbSparse self-
-attention, approximating full attention in O(L log L) by only scoring a
-sparse subset of "active" queries; (2) "self-attention distilling",
-halving the sequence length between encoder layers via a strided conv so
-a deep encoder stays tractable over long lookback windows; (3) a
-generative-style decoder that predicts the whole forecast horizon in one
-forward pass (fed a placeholder of zeros for future steps, concatenated
-after `label_len` known steps) rather than autoregressively.
-
-Scope note: this module implements (2) and (3) faithfully, but uses
-standard full scaled-dot-product attention in place of (1)'s ProbSparse
-query-sampling. ProbSparse is a strictly computational optimization (an
-approximation of full attention, not a different learned function), so
-this substitution changes speed characteristics only, while avoiding a
-dynamic top-k-selection mechanism with nothing to numerically validate
-against (see below) and that is awkward to express as a static,
-shape-stable Keras graph. No general-purpose pretrained checkpoint exists
-for the classic point-forecast Informer architecture (the only public HF
-checkpoints - e.g. `huggingface/informer-tourism-monthly` - are single-
-dataset, probabilistic reimplementations with an unrelated architecture
-and state_dict convention) - validated against a from-scratch synthetic
-PyTorch reference of this repo's own naming (see
-`weights/mappings/informer_mapping.py`).
-"""
-
 import keras
 from keras import layers, ops
 from keras_climate.utils.layers import sincos_position_embedding
 
 
 class ValueEmbedding(layers.Layer):
-    """Conv1D value embedding (kernel=3, circular padding), mapping raw
-    per-timestep features to `d_model` - matches the official
-    `TokenEmbedding`'s `nn.Conv1d(..., padding_mode="circular")`."""
 
     def __init__(self, d_model, **kwargs):
         super().__init__(**kwargs)
@@ -53,7 +21,6 @@ class ValueEmbedding(layers.Layer):
 
 
 class DataEmbedding(layers.Layer):
-    """Value embedding + fixed sin-cos positional embedding, summed."""
 
     def __init__(self, d_model, max_len=5000, dropout=0.1, **kwargs):
         super().__init__(**kwargs)
@@ -77,8 +44,6 @@ class DataEmbedding(layers.Layer):
 
 
 class DistillConv(layers.Layer):
-    """Halves the sequence length between encoder layers: strided conv +
-    BatchNorm + ELU + max-pool ("self-attention distilling")."""
 
     def __init__(self, d_model, **kwargs):
         super().__init__(**kwargs)
@@ -104,8 +69,6 @@ class DistillConv(layers.Layer):
 
 
 class MultiHeadAttention(layers.Layer):
-    """General (query, key, value) multi-head attention (used for both
-    self- and cross-attention, with an optional additive mask)."""
 
     def __init__(self, d_model, num_heads, **kwargs):
         super().__init__(**kwargs)
@@ -184,20 +147,12 @@ class InformerDecoderLayer(layers.Layer):
 
 def causal_mask(seq_len):
     mask = ops.triu(ops.ones((seq_len, seq_len)) * -1e9, k=1)
-    return mask[None, None, :, :]  # broadcasts over (B, heads, L, L)
+    return mask[None, None, :, :]
 
 
 def Informer(seq_len=96, label_len=48, pred_len=24, num_channels=7, d_model=64, num_heads=4,
              d_ff=128, encoder_layers=2, decoder_layers=1, dropout=0.1, distil=True,
              name="informer"):
-    """Inputs:
-        encoder_series: (B, seq_len, num_channels) - the lookback window.
-        decoder_series: (B, label_len + pred_len, num_channels) - the last
-            `label_len` real values from the lookback window, followed by
-            `pred_len` zero-filled placeholder steps (Informer's
-            generative decoding scheme - no autoregression needed).
-    Output: (B, pred_len, num_channels).
-    """
     enc_in = keras.Input((seq_len, num_channels), name="encoder_series")
     dec_in = keras.Input((label_len + pred_len, num_channels), name="decoder_series")
 

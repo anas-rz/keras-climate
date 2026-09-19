@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.operators.uno`.
-
-Run with: pytest keras_climate/operators/test_uno.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -11,10 +6,6 @@ from keras_climate.operators.uno import UNO
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_uno_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_builds_and_runs():
     model = UNO(input_shape=(32, 32, 1), out_channels=1, base_width=4, depth=2, modes1=2, modes2=2)
@@ -29,12 +20,6 @@ def test_depth_one():
     y = keras.ops.convert_to_numpy(model(x))
     assert y.shape == (1, 16, 16, 3)
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference matching
-# this repo's own naming/architecture (no checkpoint exists anywhere for
-# UNO - see module docstring).
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")

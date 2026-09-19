@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.forecasting.timesnet`.
-
-Run with: pytest keras_climate/forecasting/test_timesnet.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -11,10 +6,6 @@ from keras_climate.forecasting.timesnet import TimesNet, FFTPeriodBlock
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_timesnet_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_builds_and_runs():
     model = TimesNet(seq_len=48, pred_len=24, num_channels=3, d_model=16, d_ff=32,
@@ -25,8 +16,6 @@ def test_builds_and_runs():
 
 
 def test_revin_weights_are_tracked():
-    """Same RevIN weight-tracking regression check as PatchTST's (shared
-    `RevIN` class - see patchtst.py's docstring)."""
     model = TimesNet(seq_len=24, pred_len=8, num_channels=2, d_model=8, d_ff=16,
                       num_layers=1, num_kernels=2, top_k=2)
     assert model.get_layer("revin") in model.layers
@@ -34,27 +23,13 @@ def test_revin_weights_are_tracked():
 
 
 def test_fusion_weights_are_data_dependent():
-    """Regression check: the per-period fusion weights must actually
-    depend on the input's FFT amplitude, not be a uniform average (the
-    original bug: `xf`/`amp` were computed and immediately discarded, and
-    every period got the same fusion weight regardless of input)."""
     block = FFTPeriodBlock(d_model=8, d_ff=16, num_kernels=2, top_k=3)
     x1 = np.random.randn(1, 24, 8).astype("float32") * 0.1
     x2 = np.sin(np.linspace(0, 8 * np.pi, 24))[None, :, None].astype("float32") * np.ones((1, 24, 8), "float32")
     out1 = keras.ops.convert_to_numpy(block(x1, seq_len=24))
     out2 = keras.ops.convert_to_numpy(block(x2, seq_len=24))
-    # Two very differently-shaped inputs (noise vs. a clean periodic
-    # signal) must not produce outputs related by the same fixed residual
-    # offset that uniform-weight fusion would (a weak but cheap check that
-    # the fusion genuinely reacts to input content).
     assert not np.allclose(out1 - x1, out2 - x2, atol=1e-3)
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference of this
-# repo's own architecture (see weights/mappings/timesnet_mapping.py's
-# module docstring: no directly-downloadable official checkpoint exists).
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -103,7 +78,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             periods = candidate_periods(seq_len, self.top_k)
             x_time_last = x.transpose(1, 2)
             xf = torch.fft.rfft(x_time_last, dim=-1)
-            amplitude = xf.abs().mean(dim=1)  # (B, L//2+1)
+            amplitude = xf.abs().mean(dim=1)
 
             results, weights = [], []
             for period in periods:

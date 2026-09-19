@@ -1,22 +1,7 @@
-"""
-Mapping for `keras_climate.foundation.anysat_release.AnySatRelease` - the
-faithful port of the *officially released* AnySat architecture (as opposed
-to `anysat_mapping.py`, which targets this repo's own simpler design; see
-`foundation/anysat_release.py`'s module docstring).
-
-Targets the real `g-astruc/AnySat` checkpoint's own key naming one-to-one
-(`cls_token`, `projector_{modality}...`, `spatial_encoder...`,
-`blocks.{i}...`), not a from-scratch reference.
-"""
-
 import re
 
 
 def build_anysat_release_mapper(modalities, depth, keras_prefix="anysat_release"):
-    """torch_key -> keras_key for `AnySatRelease`, given the exact
-    `modalities` list and `depth` (number of plain global blocks; the
-    checkpoint's `blocks` list has `depth + 1` entries, the last being the
-    CrossBlockMulti pooling block) the Keras model was built with."""
 
     def mapper(torch_key):
         if torch_key == "cls_token":
@@ -75,15 +60,13 @@ def _lin_pair(prefix, rest, out_name):
 
 def _map_projector(modality, rest):
     if rest == "pad_parameter":
-        return None  # training-time masking helper, no Keras counterpart
+        return None
 
-    # image projector: patch_embed.{weight}, mlp.{0,1,3,4}.{weight,bias}
     if rest == "patch_embed.weight":
         return "patch_embed/kernel"
     m = re.match(r"^mlp\.(\d+)\.(weight|bias)$", rest)
     if m:
         idx = int(m.group(1))
-        # Sequential [Linear, LayerNorm, ReLU] x2 -> Linear @ {0,3}, LN @ {1,4}
         if idx == 0:
             return _lin_pair("mlp.0", rest, "mlp_lin0")
         if idx == 1:
@@ -94,7 +77,6 @@ def _map_projector(modality, rest):
             return _norm_pair("mlp.4", rest, "mlp_ln1")
         return None
 
-    # time-series (LTAE) projector, nested under `patch_embed.`
     pe = "patch_embed."
     if not rest.startswith(pe):
         return None
@@ -109,7 +91,6 @@ def _map_projector(modality, rest):
     m = re.match(r"^inconv\.(\d+)\.(weight|bias)$", r)
     if m:
         idx = int(m.group(1))
-        # Sequential [Linear, GroupNorm, ReLU, Dropout] x N -> Linear @ 4k, GN @ 4k+1
         if idx % 4 == 0:
             return _lin_pair(f"inconv.{idx}", r, f"inconv_lin{idx // 4}")
         if idx % 4 == 1:

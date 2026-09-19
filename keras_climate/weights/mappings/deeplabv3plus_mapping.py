@@ -1,28 +1,7 @@
-"""
-Mapping for `keras_climate.remote_sensing.deeplabv3plus.DeepLabV3Plus`.
-
-The backbone follows torchvision's standard `resnet50`/`resnet101`
-state_dict naming (`conv1`, `bn1`, `layer{1..4}.{i}.{conv1,bn1,conv2,bn2,
-conv3,bn3,downsample.0,downsample.1}`), so any torchvision-pretrained
-ResNet-50/101 checkpoint (or `torch.hub`'s) can be ported directly onto the
-backbone with `build_resnet_backbone_mapper`.
-
-The ASPP head + lightweight decoder have no single standardized public
-naming across DeepLabV3+ reimplementations, so `build_deeplabv3plus_mapper`
-assumes a source checkpoint using this repo's own naming convention
-(`aspp.b0/b6/b12/b18/pool_conv/project`, `low_level_project`,
-`decoder_conv1/2`, `logits`) mirroring the Keras layer names one-to-one -
-adjust the `ASPP_RULES`/`DECODER_RULES` below to match whatever specific
-checkpoint you're actually porting from.
-"""
-
 import re
 
 
 def _conv_bn_rules(torch_prefix, keras_prefix):
-    """`torch_prefix.conv.weight` / `torch_prefix.bn.{...}` rules for one
-    `ConvBNAct`, mirroring the Keras nesting (`<keras_prefix>/conv/kernel`,
-    `<keras_prefix>/bn/{gamma,beta,moving_mean,moving_variance}`)."""
     tp = re.escape(torch_prefix)
     return [
         (rf"^{tp}\.conv\.weight$", f"{keras_prefix}/conv/kernel"),
@@ -34,8 +13,6 @@ def _conv_bn_rules(torch_prefix, keras_prefix):
 
 
 def build_resnet_backbone_mapper(keras_prefix="backbone", layer_counts=(3, 4, 6, 3)):
-    """torch_key -> keras_key mapper for a torchvision resnet50/101
-    state_dict, onto `resnet_backbone(..., name=keras_prefix)`."""
     rules = [
         (r"^conv1\.weight$", f"{keras_prefix}_stem/conv/kernel"),
         (r"^bn1\.weight$", f"{keras_prefix}_stem/bn/gamma"),
@@ -75,9 +52,6 @@ def build_resnet_backbone_mapper(keras_prefix="backbone", layer_counts=(3, 4, 6,
 
 
 def build_deeplabv3plus_mapper(backbone_keras_prefix="backbone", layer_counts=(3, 4, 6, 3)):
-    """Full torch_key -> keras_key mapper: resnet backbone + ASPP + decoder,
-    assuming the source checkpoint mirrors this repo's own head naming (see
-    module docstring)."""
     rules = build_resnet_backbone_mapper(backbone_keras_prefix, layer_counts)
 
     rules += _conv_bn_rules("aspp.b0", "aspp/b0")

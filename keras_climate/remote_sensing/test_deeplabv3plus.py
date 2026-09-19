@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.remote_sensing.deeplabv3plus.DeepLabV3Plus`.
-
-Run with: pytest keras_climate/remote_sensing/test_deeplabv3plus.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -12,10 +7,6 @@ from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_deeplabv3plus_mapper
 from keras_climate.weights.pretrained import deeplabv3plus_resnet50_imagenet_backbone
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("variant", ["resnet50", "resnet101"])
 def test_builds_and_runs(variant):
@@ -35,23 +26,11 @@ def test_output_stride_8():
 
 
 def test_non_multiple_of_32_input_size():
-    """Regression check for the resize/upsample path handling arbitrary
-    (non-power-of-two-divisible) spatial sizes."""
     model = DeepLabV3Plus(input_shape=(130, 130, 3), num_classes=2, backbone_layers=(3, 4, 6, 3))
     x = np.random.randn(1, 130, 130, 3).astype("float32")
     y = model(x)
     assert tuple(y.shape) == (1, 130, 130, 2)
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip: the ResNet backbone follows torchvision's
-# standard resnet50/101 state_dict naming; the ASPP/decoder head follow
-# this repo's own naming convention (see
-# weights/mappings/deeplabv3plus_mapping.py). Random weights are ported
-# through the real converter + mapping and the forward passes are compared
-# numerically end-to-end - this is what catches padding/epsilon/layout
-# mismatches that a shapes-only check would miss.
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -70,8 +49,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return F.relu(self.bn(self.conv(x)))
 
     class Bottleneck(nn.Module):
-        """Matches real torchvision `resnet.Bottleneck`'s flat attribute
-        layout (conv1/bn1/conv2/bn2/conv3/bn3/downsample as siblings)."""
         expansion = 4
 
         def __init__(self, in_ch, filters, stride=1, dilation=1, downsample=False):
@@ -175,7 +152,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return self.logits(x)
 
     torch.manual_seed(0)
-    layer_counts = (3, 4, 6, 3)  # resnet50
+    layer_counts = (3, 4, 6, 3)
     torch_model = TorchDeepLabV3Plus(num_classes=5, layer_counts=layer_counts, output_stride=16)
     torch_model.eval()
     with torch.no_grad():
@@ -190,9 +167,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     for k, v in torch_model.state_dict().items():
         if "num_batches_tracked" in k:
             continue
-        # torchvision's standalone resnet50()/resnet101() checkpoints have
-        # no "backbone." prefix - it only exists here because the
-        # reference model embeds ResNetBackbone as a submodule.
         k = k[len("backbone."):] if k.startswith("backbone.") else k
         state_dict[k] = v.detach().numpy()
 
@@ -219,20 +193,12 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
 @pytest.mark.pretrained
 def test_real_pretrained_imagenet_resnet50_backbone():
-    """Downloads torchvision's real ImageNet-1k-pretrained ResNet-50
-    checkpoint and confirms the backbone loads cleanly (no public
-    checkpoint exists for the ASPP/decoder head - see
-    `weights/pretrained.py`'s docstring). Run explicitly with
-    `pytest -m pretrained` (network + ~100MB download, cached after the
-    first run)."""
     pytest.importorskip("torch")
     pytest.importorskip("torchvision")
     model, report = deeplabv3plus_resnet50_imagenet_backbone(input_shape=(224, 224, 3), num_classes=21)
-    # Every backbone weight must match; only the (absent) ASPP/decoder
-    # weights are expected to be missing.
     assert all(k.startswith(("aspp/", "low_level_project/", "decoder_", "logits/"))
                for k in report["missing_in_source"])
-    assert not report["unused_source_keys"]  # fc.*/num_batches_tracked are skip_patterns, not "unused"
+    assert not report["unused_source_keys"]
 
     x = np.random.rand(1, 224, 224, 3).astype("float32")
     y = keras.ops.convert_to_numpy(model(x, training=False))

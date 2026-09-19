@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.forecasting.tft`.
-
-Run with: pytest keras_climate/forecasting/test_tft.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -11,10 +6,6 @@ from keras_climate.forecasting.tft import TemporalFusionTransformer, GatedResidu
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_tft_mapper, convert_tft_lstm_state_dict
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_builds_and_runs():
     model = TemporalFusionTransformer(encoder_len=24, decoder_len=6, num_past_vars=3,
@@ -28,12 +19,8 @@ def test_builds_and_runs():
 
 
 def test_grn_sublayers_are_named_deterministically():
-    """Regression check: GatedResidualNetwork's internal Dense/LayerNorm
-    sublayers must have fixed names, not Keras's globally-incrementing
-    auto-names (which would depend on how many other unnamed layers exist
-    elsewhere in the process - see utils/layers.py's GatedResidualNetwork)."""
     grn = GatedResidualNetwork(units=8, name="my_grn")
-    grn(np.zeros((1, 8), dtype="float32"))  # build() alone doesn't materialize sublayer weights
+    grn(np.zeros((1, 8), dtype="float32"))
     names = {w.path.split("/")[-2] for w in grn.weights}
     assert names == {"fc1", "fc2", "gate", "norm"}
 
@@ -47,12 +34,6 @@ def test_grn_skip_projection_only_when_dims_differ():
     grn_diff(np.zeros((1, 4), dtype="float32"))
     assert grn_diff.skip is not None
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference of this
-# repo's own architecture (see weights/mappings/tft_mapping.py's module
-# docstring: no directly-downloadable official checkpoint exists).
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -117,10 +98,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.static_ctx_h = TorchGRN(hidden_dim, hidden_dim)
             self.static_ctx_c = TorchGRN(hidden_dim, hidden_dim)
 
-            # Individually-named attributes (not a ModuleList) to match the
-            # mapper's `past_var{i}_embed`/`future_var{i}_embed` naming
-            # convention exactly (a ModuleList would produce
-            # `past_var_embeds.{i}.weight` instead).
             for i in range(num_past_vars):
                 setattr(self, f"past_var{i}_embed", nn.Linear(1, hidden_dim))
             self.num_past_vars = num_past_vars
@@ -206,15 +183,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     lstm_state.update(convert_tft_lstm_state_dict(state_dict, "lstm_encoder", "lstm_encoder"))
     lstm_state.update(convert_tft_lstm_state_dict(state_dict, "lstm_decoder", "lstm_decoder"))
 
-    # One converter pass covering everything: `lstm_state` is already keyed
-    # by target Keras path (an identity lookup), so it's tried first before
-    # falling back to the regex-based GRN/embed/attention mapper - avoids
-    # running two separate converters each against the *full* model (which
-    # would make every weight the other one owns look spuriously "missing").
-    # The raw `lstm_{encoder,decoder}.*` torch keys are dropped here since
-    # they're superseded by their already-converted `lstm_state` entries -
-    # left in, they'd never be matched (nothing maps a keras key back to a
-    # *raw* LSTM torch key) and would always show up as "unused".
     non_lstm_state = {k: v for k, v in state_dict.items()
                        if not k.startswith(("lstm_encoder.", "lstm_decoder."))}
     combined_state = {**non_lstm_state, **lstm_state}

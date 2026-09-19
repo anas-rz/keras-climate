@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.remote_sensing.ringmo` (RingMo / RingMoEncoder).
-
-Run with: pytest keras_climate/remote_sensing/test_ringmo.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -13,10 +8,6 @@ from keras_climate.remote_sensing.ringmo import (
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_ringmo_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_builds_and_runs():
     model = RingMo(img_size=48, in_chans=3, embed_dim=16, depths=(2, 2, 2),
@@ -32,21 +23,14 @@ def test_encoder_alone_for_downstream_tasks():
                              num_heads=(2, 4, 8), window_size=3, mlp_ratio=2.0)
     x = np.random.randn(2, 48, 48, 3).astype("float32")
     tokens = encoder(x)
-    final_grid = 48 // 4 // 4  # /4 patch embed, /2 per downsample x2 downsamples
+    final_grid = 48 // 4 // 4
     assert tuple(tokens.shape) == (2, final_grid * final_grid, 16 * 4)
 
 
 def test_pi_mask_only_zeros_a_fraction_of_pixels_per_block():
-    """Regression check for the whole point of PI-Mask: within a masked
-    block, NOT every pixel should be zeroed (unlike vanilla SimMIM block
-    masking) - with `inside_ratio < 1`, some pixels inside masked blocks
-    survive."""
     x = np.ones((4, 32, 32, 3), dtype="float32")
     masked, mask = PIMask(mask_patch_size=32, mask_ratio=1.0, inside_ratio=0.5)(x)
     masked = keras.ops.convert_to_numpy(masked)
-    # mask_ratio=1.0 -> every block is "selected"; inside_ratio=0.5 means
-    # roughly half the pixels within it actually get zeroed - so the
-    # fraction of surviving (nonzero) pixels should be well away from 0.
     frac_kept = (masked != 0).mean()
     assert 0.2 < frac_kept < 0.8
 
@@ -58,12 +42,6 @@ def test_window_partition_reverse_roundtrip():
     back = keras.ops.convert_to_numpy(window_reverse(windows, 3, 12, 12))
     assert np.allclose(back, x)
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference matching
-# this repo's own RingMo naming/architecture (no official checkpoint
-# exists - see module docstring).
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -311,9 +289,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             elif p.ndim <= 1 and "bn" not in name:
                 p.normal_(0.0, 0.05)
 
-    # Strip the reference wrapper's "encoder."/"decoder." prefixes (its own
-    # `TorchSimMIMDecoder.decoder` conv submodule is itself named "decoder",
-    # so this also correctly collapses "decoder.decoder.*" -> "decoder.*").
     state_dict = {}
     for k, v in torch_model.state_dict().items():
         if "num_batches_tracked" in k or "rel_pos_index" in k or "attn_mask" in k:
@@ -330,15 +305,11 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     tok0 = encoder(x0)
     decoder = SimMIMDecoder(4 * (2 ** (len(depths) - 1)), in_chans, name="ringmo_decoder")
     feat0 = keras.layers.Reshape((encoder.final_grid, encoder.final_grid, encoder.final_dim))(tok0)
-    decoder(feat0)  # build
+    decoder(feat0)
 
     mapper = build_ringmo_mapper(depths)
     enc_report = WeightConverter(encoder, state_dict, mapper).convert(strict=False, verbose=False)
     dec_report = WeightConverter(decoder, state_dict, mapper).convert(strict=False, verbose=False)
-    # `attn/rel_pos_index` and `attn_mask` are non-trainable buffers derived
-    # purely from `window_size`/`shift_size` config (see `WindowAttention`/
-    # `SwinTransformerBlock`), not real checkpoint weights - they have no
-    # source-key counterpart by design.
     assert all(k.endswith(("rel_pos_index", "attn_mask")) for k in enc_report["missing_in_source"])
     assert not dec_report["missing_in_source"]
 

@@ -1,57 +1,13 @@
-"""
-keras_climate.foundation.clay
-----------------------------------
-Clay (Clay Foundation, 2024): a ViT-MAE-style foundation model that
-generalizes across sensors via a DOFA-style (Dynamic One-For-All,
-https://arxiv.org/abs/2403.15356) *dynamic* patch embedding: instead of a
-fixed per-sensor conv kernel, a small hypernetwork (`DynamicEmbedding` /
-`WavesTransformer`) *generates* the patch-embedding conv weights on the
-fly, conditioned on each band's wavelength - so a new sensor with a
-different band count/order than anything seen in training can still be
-embedded sensibly, without retraining or a fixed input-channel contract.
-
-This is a faithful port of the official implementation
-(github.com/Clay-foundation/model, `claymodel/factory.py` +
-`claymodel/model.py` + `claymodel/backbone.py`) rather than an
-approximation - the earlier version of this module used a much simpler
-"additive per-band embedding" scheme that could never be weight-compatible
-with a real Clay checkpoint. Faithfully matching Clay specifically means
-getting right:
-
-  * The patch embedding is *generated*, not learned directly: a mini
-    (single-layer) `nn.TransformerEncoder` over per-band wavelength
-    sincos features produces the actual depthwise-ish conv kernel + bias
-    used to embed that specific set of bands.
-  * Position encoding is a GSD- (ground-sample-distance-) scaled 2D
-    sincos embedding, with 8 channels of `dim` reserved for pre-encoded
-    time/lat-lon metadata, concatenated (not learned, not additive-only).
-  * The main transformer backbone follows lucidrains' vit-pytorch style
-    (`to_qkv`/`to_out` with no bias, LayerNorm inside the FFN's
-    `Sequential`), which is a different convention from this repo's other
-    ViT blocks (those follow timm's convention).
-
-No public Clay checkpoint is small enough to validate end-to-end here (the
-official v1.5 release is ~5GB), so this module is validated against a
-from-scratch PyTorch reference implementing the same architecture (see
-`keras_climate/foundation/test_clay.py`), not a real downloaded checkpoint
-- treat the *architecture* as faithfully ported, but budget for possible
-checkpoint-specific naming adjustments (see `weights/mappings/clay_mapping.py`).
-"""
-
 import math
 
 import numpy as np
 import keras
 from keras import layers, ops
 
-# PyTorch's plain `nn.LayerNorm`/`nn.TransformerEncoderLayer` default to
-# eps=1e-5 (Keras's own default is 1e-3).
 _LN_EPS = 1e-5
 
 
 def posemb_sincos_1d(num_or_values, dim, temperature=10000.0):
-    """Matches the official `posemb_sincos_1d` (used for wavelength
-    encoding inside `DynamicEmbedding`)."""
     values = np.arange(num_or_values, dtype=np.float32) if isinstance(num_or_values, int) else \
         np.asarray(num_or_values, dtype=np.float32)
     omega = np.arange(dim // 2, dtype=np.float32) / (dim // 2 - 1)
@@ -61,7 +17,6 @@ def posemb_sincos_1d(num_or_values, dim, temperature=10000.0):
 
 
 def posemb_sincos_2d_with_gsd(h, w, dim, gsd=1.0, temperature=10000.0):
-    """Matches the official `posemb_sincos_2d_with_gsd` exactly."""
     assert dim % 4 == 0
     y, x = np.meshgrid(np.arange(h, dtype=np.float32), np.arange(w, dtype=np.float32), indexing="ij")
     omega = np.arange(dim // 4, dtype=np.float32) / (dim // 4 - 1)
@@ -72,7 +27,6 @@ def posemb_sincos_2d_with_gsd(h, w, dim, gsd=1.0, temperature=10000.0):
 
 
 class FCBlock(layers.Layer):
-    """`x + gelu(l2(gelu(l1(x))))` - matches the official `FCBlock`."""
 
     def __init__(self, size, **kwargs):
         super().__init__(**kwargs)
@@ -90,12 +44,6 @@ class FCBlock(layers.Layer):
 
 
 class _TorchStyleEncoderLayer(layers.Layer):
-    """Reproduces `nn.TransformerEncoderLayer(norm_first=False,
-    activation="gelu", batch_first=True)` exactly: fused in-proj
-    self-attention (single `(3*dim, dim)` weight+bias, matching
-    `nn.MultiheadAttention`'s `in_proj_weight`/`in_proj_bias`), post-norm
-    residuals (`norm(x + sublayer(x))`, not the pre-norm convention used
-    elsewhere in this repo)."""
 
     def __init__(self, dim, num_heads, mlp_dim, **kwargs):
         super().__init__(**kwargs)
@@ -115,7 +63,6 @@ class _TorchStyleEncoderLayer(layers.Layer):
         super().build(input_shape)
 
     def call(self, x):
-        # x: (B, N, dim)
         B, N = ops.shape(x)[0], ops.shape(x)[1]
         qkv = self.in_proj(x)
         qkv = ops.transpose(ops.reshape(qkv, (B, N, 3, self.num_heads, self.head_dim)), (2, 0, 3, 1, 4))
@@ -131,11 +78,6 @@ class _TorchStyleEncoderLayer(layers.Layer):
 
 
 class WavesTransformer(layers.Layer):
-    """Generates per-band dynamic patch-embedding weights/bias from
-    wavelength sincos features, via one `_TorchStyleEncoderLayer` over a
-    sequence of `[weight_tokens; wave_features; bias_token]` (an unbatched
-    sequence in the reference; here treated as batch size 1 since Keras
-    layers expect a batch axis)."""
 
     def __init__(self, wave_dim, output_dim, num_latent_tokens, embed_dim, num_heads=4, **kwargs):
         super().__init__(**kwargs)
@@ -146,10 +88,6 @@ class WavesTransformer(layers.Layer):
         self.num_heads = num_heads
 
     def build(self, input_shape):
-        # dim_feedforward=2048 is PyTorch's `nn.TransformerEncoderLayer`
-        # *default* - the reference never overrides it, so it applies
-        # regardless of `wave_dim` (not a wave_dim-scaled MLP ratio, as
-        # every other transformer block in this codebase would suggest).
         self.encoder_layer = _TorchStyleEncoderLayer(self.wave_dim, self.num_heads,
                                                        2048, name="encoder_layer")
         self.fc_weight = layers.Dense(self.output_dim, name="fc_weight")
@@ -162,8 +100,7 @@ class WavesTransformer(layers.Layer):
         super().build(input_shape)
 
     def call(self, x):
-        # x: (num_bands, wave_dim)
-        seq = ops.concatenate([self.weight_tokens, x, self.bias_token], axis=0)[None]  # (1, L, wave_dim)
+        seq = ops.concatenate([self.weight_tokens, x, self.bias_token], axis=0)[None]
         out = self.encoder_layer(seq)[0]
         num_bands = ops.shape(x)[0]
         wave_slice = out[self.num_latent_tokens:self.num_latent_tokens + num_bands] + x
@@ -173,9 +110,6 @@ class WavesTransformer(layers.Layer):
 
 
 class DynamicEmbedding(layers.Layer):
-    """Encoder-side (`is_decoder=False`) dynamic patch embedding: the
-    hypernetwork's output is reshaped into a real Conv2D kernel + bias and
-    applied to the input band stack."""
 
     def __init__(self, wave_dim, num_latent_tokens, patch_size, embed_dim, **kwargs):
         super().__init__(**kwargs)
@@ -193,17 +127,14 @@ class DynamicEmbedding(layers.Layer):
         super().build(input_shape)
 
     def call(self, cube, waves):
-        # cube: (B, H, W, num_bands) NHWC; waves: (num_bands,) wavelengths in micrometers.
         waves_enc = _sincos_1d(waves, self.wave_dim)
         waves_enc = self.fclayer(waves_enc)
-        weight, bias = self.weight_generator(waves_enc)  # weight: (num_bands, patch*patch*embed_dim)
+        weight, bias = self.weight_generator(waves_enc)
 
         p = self.patch_size
         num_bands = ops.shape(cube)[-1]
-        # 'cin (cout k1 k2) -> k1 k2 cin cout' (Keras Conv2D kernel layout),
-        # matching the reference's 'cin (cout k1 k2) -> cout cin k1 k2'.
         kernel = ops.reshape(weight, (num_bands, self.embed_dim, p, p))
-        kernel = ops.transpose(kernel, (2, 3, 0, 1))  # (p, p, num_bands, embed_dim)
+        kernel = ops.transpose(kernel, (2, 3, 0, 1))
 
         out = ops.conv(cube, kernel * 0.02, strides=(p, p), padding="valid")
         out = out + bias * 0.02
@@ -213,9 +144,6 @@ class DynamicEmbedding(layers.Layer):
 
 
 def _sincos_1d(waves, dim, temperature=10000.0):
-    """Keras-tensor version of `posemb_sincos_1d` for a runtime `waves`
-    tensor (as opposed to the numpy version used for fixed position
-    grids)."""
     omega = ops.arange(dim // 2, dtype="float32") / (dim // 2 - 1)
     omega = 1.0 / (temperature ** omega)
     scaled = waves[:, None] * omega[None, :]
@@ -223,9 +151,6 @@ def _sincos_1d(waves, dim, temperature=10000.0):
 
 
 class ClayTransformerBlock(layers.Layer):
-    """lucidrains vit-pytorch style block: pre-norm attention with
-    bias-free `to_qkv`/`to_out`, and a `FeedForward` whose LayerNorm lives
-    *inside* its own `Sequential` (`net.0` = LayerNorm)."""
 
     def __init__(self, dim, num_heads, dim_head, mlp_dim, **kwargs):
         super().__init__(**kwargs)
@@ -263,17 +188,6 @@ class ClayTransformerBlock(layers.Layer):
 
 
 class ClayEncoder(keras.Model):
-    """Metadata-conditioned ViT encoder, matching the real Clay `Encoder`
-    (mask_ratio=0 / inference path, i.e. no patch masking).
-
-    `call(inputs)` takes a dict:
-        pixels:        (B, H, W, num_bands)
-        waves:         (num_bands,) wavelengths in micrometers
-        time_latlon:   (B, 8) pre-encoded [time(4), latlon(4)] metadata
-                       (Clay expects this already sincos-encoded upstream
-                       by the data pipeline, not raw scalars)
-        gsd:           scalar ground-sample-distance in meters
-    """
 
     def __init__(self, img_size=224, patch_size=8, embed_dim=768, depth=12, num_heads=12,
                  dim_head=64, mlp_ratio=4.0, wave_dim=128, num_latent_tokens=128,
@@ -296,10 +210,10 @@ class ClayEncoder(keras.Model):
         waves = inputs["waves"]
         time_latlon = inputs["time_latlon"]
 
-        patches, _ = self.patch_embedding(pixels, waves)  # (B, L, D)
+        patches, _ = self.patch_embedding(pixels, waves)
 
         pos = posemb_sincos_2d_with_gsd(self.grid, self.grid, self.embed_dim - 8, gsd=gsd)
-        pos = ops.convert_to_tensor(pos)[None]  # (1, L, D-8)
+        pos = ops.convert_to_tensor(pos)[None]
         B = ops.shape(patches)[0]
         pos = ops.broadcast_to(pos, (B, ops.shape(pos)[1], self.embed_dim - 8))
         time_latlon = ops.broadcast_to(time_latlon[:, None, :], (B, ops.shape(pos)[1], 8))

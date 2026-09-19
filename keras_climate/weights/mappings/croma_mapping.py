@@ -1,36 +1,9 @@
-"""
-Mapping for `keras_climate.foundation.croma.CROMA`, targeting the official
-checkpoint (antofuller/CROMA on HuggingFace: `CROMA_base.pt` /
-`CROMA_large.pt`).
-
-Unlike every other checkpoint this repo ports, CROMA's `.pt` file is not a
-single flat state_dict - `torch.load(path)` returns a plain dict of five
-*already-relative* sub-state-dicts (one per submodule, as the official
-`use_croma.py` loads them: `self.s1_encoder.load_state_dict(ckpt['s1_encoder'])`,
-etc.):
-
-    {'s1_encoder': {...}, 's1_GAP_FFN': {...},
-     's2_encoder': {...}, 's2_GAP_FFN': {...},
-     'joint_encoder': {...}}
-
-`load_croma_checkpoint` flattens this into one dict keyed by
-`"<submodule>.<relative_key>"` (re-adding the submodule name as a prefix),
-and `convert_croma_state_dict` then translates the reference's numeric
-`nn.ModuleList` indices (`transformer.layers.{i}.0/1...`,
-`joint_encoder.layers.{i}.0/1/2...`) into this repo's semantic Keras names
-(`block{i}/attn/...`, `block{i}/self_attn/...`, etc.) - directly producing
-a dict already keyed by the *target* Keras weight path, so it's used with
-an identity mapper rather than a regex `torch_key -> keras_key` function.
-"""
-
 import re
 
 import numpy as np
 
 
 def load_croma_checkpoint(path):
-    """Loads a CROMA `.pt` file and flattens its five sub-state-dicts into
-    one `{"<submodule>.<key>": np.ndarray}` dict."""
     import torch
 
     raw = torch.load(path, map_location="cpu")
@@ -44,9 +17,6 @@ def load_croma_checkpoint(path):
 
 
 def _self_block_rules(torch_prefix, keras_prefix, depth):
-    """`{torch_prefix}.transformer.layers.{i}.{0,1}...` (self-attn, FFN)
-    -> `{keras_prefix}/block{i}/{attn,ffn}/...`, plus the encoder's own
-    final `norm_out`."""
     out = {}
     for i in range(depth):
         tp, kp = f"{torch_prefix}.transformer.layers.{i}", f"{keras_prefix}/block{i}"
@@ -67,7 +37,6 @@ def _self_block_rules(torch_prefix, keras_prefix, depth):
 
 
 def _gap_ffn_rules(torch_prefix, keras_prefix):
-    """`nn.Sequential(LayerNorm, Linear, GELU, Linear)` -> indices 0,1,3."""
     return {
         f"{torch_prefix}.0.weight": f"{keras_prefix}/norm/gamma",
         f"{torch_prefix}.0.bias": f"{keras_prefix}/norm/beta",
@@ -79,8 +48,6 @@ def _gap_ffn_rules(torch_prefix, keras_prefix):
 
 
 def _cross_block_rules(torch_prefix, keras_prefix, depth):
-    """`{torch_prefix}.layers.{i}.{0,1,2}...` (self-attn, cross-attn, FFN)
-    -> `{keras_prefix}/block{i}/{self_attn,cross_attn,ffn}/...`."""
     out = {}
     for i in range(depth):
         tp, kp = f"{torch_prefix}.layers.{i}", f"{keras_prefix}/block{i}"
@@ -110,10 +77,6 @@ def _cross_block_rules(torch_prefix, keras_prefix, depth):
 
 
 def convert_croma_state_dict(flat_state_dict, encoder_depth=12):
-    """Translates a flattened CROMA state_dict (see `load_croma_checkpoint`)
-    into `{keras_weight_path: np.ndarray}`, ready to assign directly (via
-    `build_croma_mapper`'s identity mapper) onto a `CROMA(size=...)` model
-    built with the matching `encoder_depth`."""
     key_map = {}
     key_map["s1_encoder.linear_input.weight"] = "s1_encoder/linear_input/kernel"
     key_map["s1_encoder.linear_input.bias"] = "s1_encoder/linear_input/bias"
@@ -136,7 +99,4 @@ def convert_croma_state_dict(flat_state_dict, encoder_depth=12):
 
 
 def build_croma_identity_mapper():
-    """`convert_croma_state_dict` already produces keys spelled exactly as
-    the target Keras weight paths, so the "mapper" is just an identity
-    lookup."""
     return lambda k: k

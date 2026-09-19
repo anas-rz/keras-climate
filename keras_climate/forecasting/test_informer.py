@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.forecasting.informer`.
-
-Run with: pytest keras_climate/forecasting/test_informer.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -11,10 +6,6 @@ from keras_climate.forecasting.informer import Informer, DataEmbedding, DistillC
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_informer_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("distil", [True, False])
 def test_builds_and_runs(distil):
@@ -44,12 +35,6 @@ def test_data_embedding_uses_matching_positional_slice():
     assert out.shape == (2, 12, 8)
 
 
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference matching
-# this repo's own naming/architecture (no official checkpoint exists for
-# the classic point-forecast Informer - see module docstring).
-# --------------------------------------------------------------------------
-
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
     import torch.nn as nn
@@ -70,7 +55,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.conv = nn.Conv1d(in_dim, d_model, kernel_size=3, bias=False)
 
         def forward(self, x):
-            # x: (B, L, C) -> circular-pad along time -> conv (needs NCL)
             left, right = x[:, -1:, :], x[:, :1, :]
             padded = torch.cat([left, x, right], dim=1).permute(0, 2, 1)
             return self.conv(padded).permute(0, 2, 1)
@@ -227,9 +211,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     mapper = build_informer_mapper(encoder_layers=encoder_layers, decoder_layers=decoder_layers)
     report = WeightConverter(keras_model, state_dict, mapper).convert(strict=False, verbose=False)
-    # `{enc,dec}_embedding/position_embedding` are fixed sin-cos buffers
-    # derived purely from config (see `DataEmbedding`), not learned - they
-    # have no source-key counterpart by design.
     assert set(report["missing_in_source"]) == {
         "enc_embedding/position_embedding", "dec_embedding/position_embedding",
     }

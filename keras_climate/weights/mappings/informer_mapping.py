@@ -1,20 +1,3 @@
-"""
-Mapping for `keras_climate.forecasting.informer.Informer`, assuming a
-source checkpoint using this repo's own naming (no general-purpose
-checkpoint exists - see `informer.py`'s module docstring):
-
-    {enc,dec}_embedding.value_embedding.conv.weight
-    {enc,dec}_embedding.position_embedding             (fixed buffer, skip)
-    encoder_layer{i}.attn.{q,k,v,out}_proj.{weight,bias}
-    encoder_layer{i}.norm{1,2}.{weight,bias}
-    encoder_layer{i}.conv{1,2}.{weight,bias}
-    distill{i}.conv.weight / distill{i}.bn.{weight,bias,running_mean,running_var}
-    decoder_layer{i}.{self,cross}_attn.{q,k,v,out}_proj.{weight,bias}
-    decoder_layer{i}.norm{1,2,3}.{weight,bias}
-    decoder_layer{i}.conv{1,2}.{weight,bias}
-    projection.{weight,bias}
-"""
-
 import re
 
 

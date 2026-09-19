@@ -1,30 +1,3 @@
-"""
-keras_climate.operators.fno
--------------------------------
-FNO (Li et al. 2021, "Fourier Neural Operator for Parametric Partial
-Differential Equations"): a lifting layer raises the input to a hidden
-"width", a stack of Fourier layers each apply a 2D FFT, truncate to the
-lowest `modes1 x modes2` frequencies, multiply by a learned complex
-weight tensor per retained mode, zero-pad back to the full spectrum and
-inverse-FFT - in parallel with a pointwise (1x1) conv "skip" path, summed
-- and a projection head maps back to the output channel count. Unlike a
-standard CNN, this is resolution-invariant: the same learned weights
-apply regardless of the input grid's spatial size (only mode count
-matters).
-
-A real PDEBench-trained FNO checkpoint exists on HuggingFace
-(`pdebench-fno-audit/fno-weights`), but its state_dict reveals a modified
-block structure (`spectral`/`pointwise`/`local_conv`/a scalar `gate` per
-block) that doesn't match the original 2020 paper's code, PDEBench's own
-official repo, or any published/indexed version of the `neuraloperator`
-library - its exact combination formula could not be verified from any
-public source, so loading it would risk silently assigning real weights
-into the wrong computation graph. This module instead implements the
-original, well-documented Li et al. architecture and is validated against
-a from-scratch synthetic PyTorch reference of that same architecture (see
-`weights/mappings/fno_mapping.py`).
-"""
-
 import numpy as np
 import keras
 from keras import layers, ops
@@ -32,16 +5,12 @@ from keras_climate.utils.layers import rfft2_hw, irfft2_hw
 
 
 class CoordinateGrid(layers.Layer):
-    """Appends a normalized `(x, y)` coordinate grid as extra input
-    channels - matches the original paper's `get_grid` (spectral
-    convolutions are otherwise translation-invariant, so explicit
-    coordinates let the model know where it is on the domain)."""
 
     def __init__(self, H, W, **kwargs):
         super().__init__(**kwargs)
         gx, gy = np.meshgrid(np.linspace(0, 1, H, dtype="float32"),
                               np.linspace(0, 1, W, dtype="float32"), indexing="ij")
-        self._grid_np = np.stack([gx, gy], axis=-1)  # (H, W, 2)
+        self._grid_np = np.stack([gx, gy], axis=-1)
 
     def build(self, input_shape):
         self.grid = self.add_weight(shape=self._grid_np.shape,
@@ -56,13 +25,6 @@ class CoordinateGrid(layers.Layer):
 
 
 class SpectralConv2D(layers.Layer):
-    """2D Fourier layer. After an `rfft2`, the last spatial axis is
-    already truncated to its non-negative-frequency half; the OTHER
-    spatial axis still has both signs of frequency, so the lowest
-    `modes1` positive-frequency rows AND their `modes1` negative-
-    frequency counterparts (the last `modes1` rows) each get their own
-    learned complex weight tensor - matching the original implementation's
-    two-weight-block truncation pattern exactly, not an approximation."""
 
     def __init__(self, in_channels, out_channels, modes1, modes2, **kwargs):
         super().__init__(**kwargs)
@@ -89,8 +51,8 @@ class SpectralConv2D(layers.Layer):
 
     def call(self, x):
         H, W = x.shape[1], x.shape[2]
-        re, im = rfft2_hw(x)  # (B, H, Wf, C)
-        re = ops.transpose(re, (0, 3, 1, 2))  # (B, C, H, Wf)
+        re, im = rfft2_hw(x)
+        re = ops.transpose(re, (0, 3, 1, 2))
         im = ops.transpose(im, (0, 3, 1, 2))
         Wf = re.shape[-1]
 
@@ -109,15 +71,12 @@ class SpectralConv2D(layers.Layer):
         out_re_full = ops.concatenate([ops.pad(out_top_re, pad_spec), mid, ops.pad(out_bot_re, pad_spec)], axis=2)
         out_im_full = ops.concatenate([ops.pad(out_top_im, pad_spec), mid, ops.pad(out_bot_im, pad_spec)], axis=2)
 
-        out_re_full = ops.transpose(out_re_full, (0, 2, 3, 1))  # (B, H, Wf, C)
+        out_re_full = ops.transpose(out_re_full, (0, 2, 3, 1))
         out_im_full = ops.transpose(out_im_full, (0, 2, 3, 1))
         return irfft2_hw(out_re_full, out_im_full, H, W)
 
 
 class FNOBlock(layers.Layer):
-    """Spectral conv + pointwise (1x1) conv skip, summed, then GELU
-    (skipped on the final block, matching the original architecture's
-    unactivated last Fourier layer)."""
 
     def __init__(self, width, modes1, modes2, activation=True, **kwargs):
         super().__init__(**kwargs)
@@ -132,8 +91,6 @@ class FNOBlock(layers.Layer):
 
 def FNO2D(input_shape=(64, 64, 1), out_channels=1, width=32, modes1=12, modes2=12,
           num_layers=4, add_grid=True, name="fno2d"):
-    """Maps one 2D field to another of the same spatial resolution (e.g.
-    a Darcy-flow permeability field to its pressure solution field)."""
     H, W = input_shape[0], input_shape[1]
     inputs = keras.Input(shape=input_shape, name="field")
     x = CoordinateGrid(H, W, name="coord_grid")(inputs) if add_grid else inputs

@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.remote_sensing.unet.UNet`.
-
-Run with: pytest keras_climate/remote_sensing/test_unet.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -12,10 +7,6 @@ from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_unet_mapper
 from keras_climate.weights.pretrained import unet_carvana
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("variant", ["small", "base", "large"])
 def test_builds_and_runs(variant):
@@ -40,14 +31,6 @@ def test_final_activation_applied():
     y = keras.ops.convert_to_numpy(model(x))
     assert y.min() >= 0.0 and y.max() <= 1.0
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip: a reference UNet matching
-# milesial/Pytorch-UNet's naming (the convention `build_unet_mapper`
-# assumes) is built, its (random) weights are ported through the real
-# converter + mapping used in this repo, and the two forward passes are
-# compared numerically end-to-end.
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -96,7 +79,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return self.conv(x)
 
     class TorchUNet(nn.Module):
-        """depth=4, base_filters=64 - matches `UNet()`'s defaults."""
 
         def __init__(self, n_channels=3, n_classes=2, base=64):
             super().__init__()
@@ -126,8 +108,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     torch.manual_seed(0)
     torch_model = TorchUNet(n_channels=3, n_classes=2, base=64)
     torch_model.eval()
-    # Randomize BatchNorm into a non-trivial eval state so a wrong BN
-    # mapping/epsilon would actually be visible numerically.
     with torch.no_grad():
         for m in torch_model.modules():
             if isinstance(m, nn.BatchNorm2d):
@@ -140,7 +120,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
                   if "num_batches_tracked" not in k}
 
     keras_model = UNet(input_shape=(64, 64, 3), num_classes=2, base_filters=64, depth=4)
-    keras_model(np.zeros((1, 64, 64, 3), dtype="float32"))  # build
+    keras_model(np.zeros((1, 64, 64, 3), dtype="float32"))
 
     mapper = build_unet_mapper(depth=4)
     report = WeightConverter(keras_model, state_dict, mapper).convert(strict=True, verbose=False)
@@ -149,11 +129,11 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     x_np = np.random.randn(2, 3, 64, 64).astype("float32")
     with torch.no_grad():
-        torch_out = torch_model(torch.from_numpy(x_np)).numpy()  # (B, C, H, W)
+        torch_out = torch_model(torch.from_numpy(x_np)).numpy()
 
-    keras_in = np.transpose(x_np, (0, 2, 3, 1))  # NCHW -> NHWC
+    keras_in = np.transpose(x_np, (0, 2, 3, 1))
     keras_out = keras.ops.convert_to_numpy(keras_model(keras_in, training=False))
-    keras_out = np.transpose(keras_out, (0, 3, 1, 2))  # NHWC -> NCHW
+    keras_out = np.transpose(keras_out, (0, 3, 1, 2))
 
     max_diff = np.abs(torch_out - keras_out).max()
     assert max_diff < 1e-3, f"UNet weight port numerical mismatch: max abs diff {max_diff}"
@@ -161,12 +141,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
 @pytest.mark.pretrained
 def test_real_pretrained_carvana_checkpoint():
-    """Downloads milesial/Pytorch-UNet's real released Carvana checkpoint
-    and confirms it loads cleanly and produces a sane binary mask.
-    Run explicitly with `pytest -m pretrained` (not part of the default
-    run - this hits the network and downloads a ~124MB file, cached under
-    `KERAS_CLIMATE_CACHE_DIR` / `~/.cache/keras_climate/weights` after the
-    first run)."""
     pytest.importorskip("torch")
     model, report = unet_carvana(input_shape=(256, 256, 3))
     assert not report["missing_in_source"]

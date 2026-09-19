@@ -1,22 +1,7 @@
-"""
-Mapping for `keras_climate.operators.afno.AFNOOperator` /
-`keras_climate.weather.fourcastnet.FourCastNet`'s AFNO blocks, assuming a
-source checkpoint using the official NVlabs AFNO/FourCastNet naming:
-
-    blocks.{i}.norm1.{weight,bias}
-    blocks.{i}.filter.{w1,b1,w2,b2}          (raw parameter tensors, no transpose)
-    blocks.{i}.norm2.{weight,bias}
-    blocks.{i}.mlp.fc1.{weight,bias} / mlp.fc2.{weight,bias}
-    patch_embed.proj.{weight,bias}
-"""
-
 import re
 
 
 def build_afno_mapper(depth, keras_prefix=""):
-    """`keras_prefix`: optional path prefix if the AFNO blocks are nested
-    inside a larger model (e.g. FourCastNet's own top-level scope);
-    leave empty for a standalone `AFNOOperator`."""
     kp = f"{keras_prefix}/" if keras_prefix else ""
     rules = [
         (r"^patch_embed\.proj\.weight$", f"{kp}patch_embed_proj/kernel"),

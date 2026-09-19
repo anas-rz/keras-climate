@@ -1,18 +1,9 @@
-"""
-keras_climate.remote_sensing.segformer
------------------------------------------
-SegFormer (Xie et al. 2021): hierarchical Mix Transformer (MiT) encoder with
-efficient spatial-reduction attention + Mix-FFN, and a lightweight all-MLP
-decode head. Strong general-purpose choice for satellite/aerial segmentation.
-"""
-
 import keras
 from keras import layers, ops
 from keras_climate.utils.layers import OverlapPatchEmbed, SegformerBlock, ConvBNAct
 
 
 MIT_CONFIGS = {
-    # embed_dims, depths, num_heads, sr_ratios, mlp_ratio
     "b0": dict(embed_dims=[32, 64, 160, 256], depths=[2, 2, 2, 2],
                num_heads=[1, 2, 5, 8], sr_ratios=[8, 4, 2, 1], decoder_dim=256),
     "b1": dict(embed_dims=[64, 128, 320, 512], depths=[2, 2, 2, 2],
@@ -29,16 +20,6 @@ MIT_CONFIGS = {
 
 
 class MiTStage(layers.Layer):
-    """One MiT encoder stage: overlap patch embed -> N SegFormer blocks ->
-    norm -> reshape back to a spatial (B, H, W, C) map.
-
-    Keeping the whole stage (including the intermediate token sequence and
-    its H/W bookkeeping) inside a single layer's `call()` matters: those
-    intermediates never cross the Functional-API tracing boundary, unlike a
-    plain function that would `return tokens, H, W` from a layer call - the
-    Functional API requires layer outputs to be tensors, and static H/W
-    ints resolved at graph-build time are not tensors.
-    """
 
     def __init__(self, patch_size, stride, embed_dim, num_heads, depth, sr_ratio,
                  mlp_ratio=4.0, drop_path_rates=None, name="mit_stage", **kwargs):
@@ -63,7 +44,6 @@ class MiTStage(layers.Layer):
 
 
 def mit_encoder(x, cfg, drop_path_rate=0.1, name="mit"):
-    """Returns a list of 4 multi-scale feature maps (NHWC), one per stage."""
     patch_sizes = [7, 3, 3, 3]
     strides = [4, 2, 2, 2]
     total_blocks = sum(cfg["depths"])
@@ -88,8 +68,6 @@ def mit_encoder(x, cfg, drop_path_rate=0.1, name="mit"):
 
 
 def segformer_decode_head(features, decoder_dim, num_classes, target_hw, name="decode_head"):
-    """All-MLP decoder: project each scale to a common dim, upsample to
-    1/4 resolution, concat, fuse, classify."""
     h4, w4 = ops.shape(features[0])[1], ops.shape(features[0])[2]
     projected = []
     for i, f in enumerate(features):

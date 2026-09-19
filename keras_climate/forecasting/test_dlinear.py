@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.forecasting.dlinear`.
-
-Run with: pytest keras_climate/forecasting/test_dlinear.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -11,10 +6,6 @@ from keras_climate.forecasting.dlinear import DLinear, SeriesDecomposition
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_dlinear_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_builds_and_runs_shared():
     model = DLinear(seq_len=96, pred_len=48, num_channels=7, individual=False)
@@ -38,11 +29,6 @@ def test_decomposition_seasonal_plus_trend_equals_input():
     assert np.allclose(recon, x, atol=1e-5)
 
 
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference matching
-# the official Zeng et al. DLinear repo's own naming.
-# --------------------------------------------------------------------------
-
 @pytest.mark.parametrize("individual", [False, True])
 def test_weight_port_roundtrip_matches_pytorch_reference(individual):
     torch = pytest.importorskip("torch")
@@ -56,7 +42,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference(individual):
             self.avg = nn.AvgPool1d(kernel_size, stride=1, padding=0)
 
         def forward(self, x):
-            # x: (B, L, C)
             pad_front = (self.kernel_size - 1) // 2
             pad_end = self.kernel_size - 1 - pad_front
             front = x[:, :1, :].repeat(1, pad_front, 1)
@@ -82,7 +67,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference(individual):
 
         def forward(self, x):
             seasonal, trend = self.decomp(x)
-            seasonal, trend = seasonal.permute(0, 2, 1), trend.permute(0, 2, 1)  # (B, C, L)
+            seasonal, trend = seasonal.permute(0, 2, 1), trend.permute(0, 2, 1)
             if self.individual:
                 s_out = torch.stack([self.Linear_Seasonal[c](seasonal[:, c, :])
                                       for c in range(self.num_channels)], dim=1)
@@ -91,7 +76,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference(individual):
             else:
                 s_out = self.Linear_Seasonal(seasonal)
                 t_out = self.Linear_Trend(trend)
-            return (s_out + t_out).permute(0, 2, 1)  # (B, pred_len, C)
+            return (s_out + t_out).permute(0, 2, 1)
 
     torch.manual_seed(0)
     seq_len, pred_len, num_channels, kernel_size = 32, 16, 3, 5

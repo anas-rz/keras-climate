@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.weather.climax`.
-
-Run with: pytest keras_climate/weather/test_climax.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -11,10 +6,6 @@ from keras_climate.weather.climax import ClimaX, MultiVariablePatchEmbed, Variab
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_climax_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_builds_and_runs():
     model = ClimaX(img_size=(16, 32), patch_size=4, num_vars=3, embed_dim=16, depth=2,
@@ -26,28 +17,19 @@ def test_builds_and_runs():
 
 
 def test_multi_variable_patch_embed_uses_separate_weights_per_variable():
-    """Regression check: each variable's `Conv2D` must have independent
-    weights (not a single conv reused for every variable)."""
     layer = MultiVariablePatchEmbed(num_vars=3, patch_size=4, embed_dim=8)
     x = np.random.randn(1, 16, 16, 3).astype("float32")
-    layer(x)  # build
+    layer(x)
     kernels = [c.kernel.numpy() for c in layer.token_embeds]
     assert not np.allclose(kernels[0], kernels[1])
 
 
 def test_variable_aggregation_output_shape():
     layer = VariableAggregation(embed_dim=8, num_heads=2)
-    x = np.random.randn(2, 4, 5, 8).astype("float32")  # (B, V, L, D)
+    x = np.random.randn(2, 4, 5, 8).astype("float32")
     out = keras.ops.convert_to_numpy(layer(x))
     assert out.shape == (2, 5, 8)
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference using
-# real `nn.MultiheadAttention` (matching the official checkpoint's own
-# `channel_agg`/`channel_embed`/`channel_query` naming - see
-# `weights/mappings/climax_mapping.py`).
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -60,8 +42,8 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.proj = nn.Conv2d(1, embed_dim, patch_size, stride=patch_size)
 
         def forward(self, x):
-            x = self.proj(x)  # (B, D, gh, gw)
-            return x.flatten(2).transpose(1, 2)  # (B, L, D)
+            x = self.proj(x)
+            return x.flatten(2).transpose(1, 2)
 
     class TorchAttn(nn.Module):
         def __init__(self, dim, num_heads):
@@ -129,25 +111,24 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.head = nn.Sequential(*head)
 
         def forward(self, fields, lead_time):
-            # fields: (B, num_vars, H, W)
             embeds = [self.token_embeds[v](fields[:, v:v + 1]) for v in range(self.num_vars)]
-            x = torch.stack(embeds, dim=1)  # (B, V, L, D)
+            x = torch.stack(embeds, dim=1)
             x = x + self.channel_embed.unsqueeze(2)
 
             b, _, l, _ = x.shape
-            x = torch.einsum("bvld->blvd", x).flatten(0, 1)  # (B*L, V, D)
+            x = torch.einsum("bvld->blvd", x).flatten(0, 1)
             query = self.channel_query.repeat_interleave(x.shape[0], dim=0)
             x, _ = self.channel_agg(query, x, x)
-            x = x.squeeze(1).unflatten(0, (b, l))  # (B, L, D)
+            x = x.squeeze(1).unflatten(0, (b, l))
 
             x = x + self.pos_embed
-            lead_embed = self.lead_time_embed(lead_time)  # (B, D)
+            lead_embed = self.lead_time_embed(lead_time)
             x = x + lead_embed.unsqueeze(1)
 
             for blk in self.blocks:
                 x = blk(x)
             x = self.norm(x)
-            x = self.head(x)  # (B, L, num_vars*p*p)
+            x = self.head(x)
 
             B = x.shape[0]
             p, V = self.patch_size, self.num_vars
@@ -192,10 +173,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
 @pytest.mark.pretrained
 def test_real_pretrained_climax_1_40625deg():
-    """Downloads Microsoft's real official ClimaX checkpoint
-    (`1.40625deg.ckpt`, 128x256 grid, 48 variables) and confirms it loads
-    cleanly. Run explicitly with `pytest -m pretrained` (network + ~423MB
-    download, cached after the first run)."""
     pytest.importorskip("torch")
     from keras_climate.weights.pretrained import climax_1_40625deg
 

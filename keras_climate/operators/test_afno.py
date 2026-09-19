@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.operators.afno`.
-
-Run with: pytest keras_climate/operators/test_afno.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -11,10 +6,6 @@ from keras_climate.operators.afno import AFNOOperator, AFNO2D
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_afno_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_builds_and_runs():
     model = AFNOOperator(input_shape=(32, 32, 2), out_channels=2, patch_size=4,
@@ -32,21 +23,13 @@ def test_afno2d_preserves_grid_shape():
 
 
 def test_afno2d_is_residual_when_filter_weights_are_zero():
-    """With every filter weight/bias at exactly zero, `AFNO2D` must reduce
-    to the identity (its output is just `bias` in that case), sanity-
-    checking the residual connection is actually wired."""
     layer = AFNO2D(hidden_size=8, num_blocks=2)
     x = np.random.randn(2, 4, 4, 8).astype("float32")
-    layer(x)  # build
+    layer(x)
     layer.set_weights([np.zeros_like(w) for w in layer.get_weights()])
     y = keras.ops.convert_to_numpy(layer(x))
     assert np.allclose(y, x, atol=1e-4)
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference matching
-# the official NVlabs AFNO naming/architecture.
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -111,7 +94,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     torch_layer.eval()
 
     keras_layer = AFNO2D(hidden_size, num_blocks, name="filter")
-    keras_layer(np.zeros((1, H, W, hidden_size), dtype="float32"))  # build
+    keras_layer(np.zeros((1, H, W, hidden_size), dtype="float32"))
 
     state_dict = {k: v.detach().numpy() for k, v in torch_layer.state_dict().items()}
     mapper = {
@@ -133,10 +116,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
 
 def test_afno_operator_mapper_matches_full_model():
-    """Round-trips a full small `AFNOOperator` (patch_embed + blocks) using
-    `build_afno_mapper`, ensuring the mapper's block/patch-embed naming
-    lines up with the actual model (not just the standalone `AFNO2D`
-    layer checked above)."""
     torch = pytest.importorskip("torch")
     import torch.nn as nn
 
@@ -149,10 +128,6 @@ def test_afno_operator_mapper_matches_full_model():
             self.proj = nn.Conv2d(input_shape[-1], embed_dim, patch_size, stride=patch_size)
 
     class TorchDummy(nn.Module):
-        """Only holds the parameters the mapper needs to find - not a
-        functionally-faithful forward pass (this test checks name
-        resolution, not numerics; see the dedicated `AFNO2D` round-trip
-        test above for the numerical check)."""
         def __init__(self):
             super().__init__()
             self.patch_embed = TorchPatchEmbed()
@@ -180,7 +155,5 @@ def test_afno_operator_mapper_matches_full_model():
 
     mapper = build_afno_mapper(depth=depth)
     report = WeightConverter(keras_model, state_dict, mapper).convert(strict=False, verbose=False)
-    # `head` (the un-patchify projection) has no counterpart in this
-    # name-resolution-only dummy reference.
     assert all(k.startswith("head/") for k in report["missing_in_source"])
     assert not report["unused_source_keys"]

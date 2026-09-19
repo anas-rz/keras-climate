@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.forecasting.nbeats`.
-
-Run with: pytest keras_climate/forecasting/test_nbeats.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -11,10 +6,6 @@ from keras_climate.forecasting.nbeats import NBeats, GenericBasis, TrendBasis, S
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_nbeats_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("stack_types", [("generic",), ("trend", "seasonality"), ("generic", "trend")])
 def test_builds_and_runs(stack_types):
@@ -34,10 +25,8 @@ def test_generic_basis_splits_theta_directly():
 
 
 def test_trend_basis_degree_zero_is_constant():
-    """A degree-0 polynomial basis should produce a flat (constant)
-    backcast/forecast regardless of position."""
     basis = TrendBasis(degree=0, backcast_size=8, forecast_size=4)
-    theta = np.array([[2.0, 3.0]], dtype="float32")  # [forecast_coeff, backcast_coeff]
+    theta = np.array([[2.0, 3.0]], dtype="float32")
     backcast, forecast = basis(theta)
     backcast = keras.ops.convert_to_numpy(backcast)[0]
     forecast = keras.ops.convert_to_numpy(forecast)[0]
@@ -47,17 +36,12 @@ def test_trend_basis_degree_zero_is_constant():
 
 def test_seasonality_basis_is_periodic_over_forecast_horizon():
     basis = SeasonalityBasis(num_harmonics=1, backcast_size=8, forecast_size=8)
-    theta = np.array([[1.0, 0.0, 0.0, 0.0]], dtype="float32")  # forecast cos coeff = 1
+    theta = np.array([[1.0, 0.0, 0.0, 0.0]], dtype="float32")
     _, forecast = basis(theta)
     forecast = keras.ops.convert_to_numpy(forecast)[0]
     expected = np.cos(2 * np.pi * np.arange(8) / 8)
     assert np.allclose(forecast, expected, atol=1e-5)
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference matching
-# this repo's own naming/architecture (no official checkpoint exists).
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -168,7 +152,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     state_dict = {}
     for k, v in torch_model.state_dict().items():
         if k.startswith("block_list."):
-            continue  # duplicate aliases of the block{i}.* attributes
+            continue
         state_dict[k] = v.detach().numpy()
 
     keras_model = NBeats(seq_len=seq_len, pred_len=pred_len, stack_types=stack_types,
@@ -178,10 +162,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     num_blocks = len(stack_types) * num_blocks_per_stack
     mapper = build_nbeats_mapper(num_blocks=num_blocks, num_fc_layers=num_fc_layers)
-    # Trend/Seasonality basis buffers are derived, non-trainable constants
-    # on both sides (see module docstring) - registered as torch buffers
-    # too (hence present in `state_dict`), but with no learned counterpart
-    # to actually port; skip them entirely rather than trying to match.
     report = WeightConverter(
         keras_model, state_dict, mapper, skip_patterns=[r"\.basis\."],
     ).convert(strict=False, verbose=False)

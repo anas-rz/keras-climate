@@ -1,24 +1,3 @@
-"""
-keras_climate.foundation.prithvi
-------------------------------------
-Prithvi (IBM/NASA, 2023): a ViT Masked Autoencoder pretrained on NASA
-Harmonized Landsat-Sentinel (HLS) imagery, using 3D (tubelet) patch
-embedding over a short temporal stack (typically 3 timesteps) of 6-band
-multispectral imagery. Downstream tasks (e.g. burn-scar or flood mapping)
-attach a segmentation/classification head to `PrithviEncoder`.
-
-Prithvi-EO-2.0 (the 2024 successor, `prithvi_eo_v2_300m`/`_600m` below)
-reuses this exact same `PrithviEncoder` architecture unchanged - same
-patch embedding, same factorized 3D sin-cos positional embedding, same
-ViT block - just at different embed_dim/depth/num_heads/patch_size/
-num_frames, so no new model code is needed for its base (non-"-TL")
-checkpoint variants (see `weights/pretrained.py`'s `prithvi_eo_v2_300m`
-loader). The "-TL" (Temporal+Location) variants additionally add a
-`TemporalEncoder`/`LocationEncoder` (each just one small learned/fixed
-per-channel scale tensor encoding acquisition timestamp/lat-lon) that
-this module does not yet implement.
-"""
-
 import numpy as np
 import keras
 from keras import layers, ops
@@ -30,7 +9,6 @@ PRITHVI_CONFIGS = {
                           decoder_depth=8, decoder_num_heads=16),
     "prithvi_300m": dict(embed_dim=1024, depth=24, num_heads=16, decoder_embed_dim=512,
                           decoder_depth=8, decoder_num_heads=16),
-    # Prithvi-EO-2.0 (see module docstring) - same architecture, larger.
     "prithvi_eo_v2_300m": dict(embed_dim=1024, depth=24, num_heads=16, decoder_embed_dim=512,
                                 decoder_depth=8, decoder_num_heads=16, patch_size=16),
     "prithvi_eo_v2_600m": dict(embed_dim=1280, depth=32, num_heads=16, decoder_embed_dim=512,
@@ -39,9 +17,6 @@ PRITHVI_CONFIGS = {
 
 
 def _get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
-    """Matches the official Prithvi/MAE-ST `get_1d_sincos_pos_embed_from_grid`
-    exactly (needed bit-for-bit, since `pos_embed` ships as a checkpoint
-    buffer computed by this same formula)."""
     assert embed_dim % 2 == 0
     omega = np.arange(embed_dim // 2, dtype=np.float64)
     omega /= embed_dim / 2.0
@@ -52,14 +27,6 @@ def _get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
 
 
 def get_3d_sincos_pos_embed(embed_dim, grid_size, add_cls_token=False):
-    """Factorized 3D (t, h, w) sin-cos position embedding: separate 1D
-    sin-cos embeddings per axis, split `embed_dim` into w:h:t = 6:6:4
-    sixteenths and *concatenated* (not summed) along the feature axis -
-    matches the official Prithvi `get_3d_sincos_pos_embed` exactly (this is
-    a frozen/non-trainable buffer in the source checkpoint, so getting this
-    formula bit-exact is what lets the encoder's pos_embed be ported - or
-    equivalently, recomputed identically - without any learned weights of
-    its own)."""
     assert embed_dim % 16 == 0
     t_size, h_size, w_size = grid_size
     w_embed_dim = embed_dim // 16 * 6
@@ -81,7 +48,6 @@ def get_3d_sincos_pos_embed(embed_dim, grid_size, add_cls_token=False):
 
 
 class PrithviEncoder(keras.Model):
-    """3D-patch ViT encoder over a (B, T, H, W, C) HLS image stack."""
 
     def __init__(self, img_size=224, patch_size=16, num_frames=3, tubelet_size=1,
                  in_chans=6, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4.0,
@@ -120,12 +86,11 @@ class PrithviEncoder(keras.Model):
 
         if return_all_tokens:
             return tokens
-        return tokens[:, 0]  # cls token only
+        return tokens[:, 0]
 
 
 def PrithviClassifier(variant="prithvi_100m", img_size=224, patch_size=16, num_frames=3,
                        in_chans=6, num_classes=10, name="prithvi_classifier"):
-    """Prithvi encoder + linear probe / fine-tune head for scene classification."""
     cfg = PRITHVI_CONFIGS[variant]
     inputs = keras.Input(shape=(num_frames, img_size, img_size, in_chans), name="hls_stack")
     encoder = PrithviEncoder(img_size, patch_size, num_frames, 1, in_chans,
@@ -137,8 +102,6 @@ def PrithviClassifier(variant="prithvi_100m", img_size=224, patch_size=16, num_f
 
 def PrithviSegmenter(variant="prithvi_100m", img_size=224, patch_size=16, num_frames=3,
                       in_chans=6, num_classes=2, name="prithvi_segmenter"):
-    """Prithvi encoder + a simple conv decode head, for dense prediction
-    tasks (burn scar / flood / crop-type mapping)."""
     cfg = PRITHVI_CONFIGS[variant]
     inputs = keras.Input(shape=(num_frames, img_size, img_size, in_chans), name="hls_stack")
     encoder = PrithviEncoder(img_size, patch_size, num_frames, 1, in_chans,
@@ -149,7 +112,7 @@ def PrithviSegmenter(variant="prithvi_100m", img_size=224, patch_size=16, num_fr
     grid = img_size // patch_size
     t_grid = num_frames
     x = layers.Reshape((t_grid, grid, grid, cfg["embed_dim"]), name="to_grid")(patch_tokens)
-    x = layers.Lambda(lambda t: ops.mean(t, axis=1), name="temporal_pool")(x)  # fuse time
+    x = layers.Lambda(lambda t: ops.mean(t, axis=1), name="temporal_pool")(x)
 
     for i, f in enumerate([256, 128, 64]):
         x = layers.Conv2DTranspose(f, 3, strides=2, padding="same", name=f"up{i}")(x)

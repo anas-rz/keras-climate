@@ -1,37 +1,3 @@
-"""
-keras_climate.forecasting.autoformer
-----------------------------------------
-Autoformer (Wu et al. 2021, NeurIPS): a decomposition-based Transformer
-forecaster. Series-decomposition blocks (moving-average trend/seasonal
-split, see `keras_climate.forecasting.dlinear.SeriesDecomposition`) are
-embedded throughout the encoder and decoder rather than applied once up
-front, progressively separating trend from seasonal dynamics at every
-layer; the decoder accumulates each layer's extracted trend component
-into a running additive trend that is added back to the seasonal output
-at the very end. Self-attention is replaced by an Auto-Correlation
-mechanism that discovers period-based dependencies via FFT rather than
-pointwise dot-products.
-
-Scope note on Auto-Correlation: the official mechanism selects the top-k
-highest-autocorrelation time lags (a `torch.topk` over an FFT-computed
-autocorrelation function) and aggregates values via a weighted sum of
-those lags' circularly time-shifted V - both the lag *selection* and the
-per-lag `torch.roll` are inherently dynamic/data-dependent operations that
-don't translate cleanly to a static, backend-agnostic Keras graph (JAX
-requires static shapes; TF's `tf.roll` supports a dynamic shift but JAX's
-does not, at least not portably). This module instead computes a
-mathematically equivalent-in-spirit **full** (non-top-k) softmax-weighted
-circular convolution of V with the complete autocorrelation profile,
-itself computed via FFT (`ops.rfft`/`ops.irfft`, as in
-`keras_climate.forecasting.timesnet`) - a differentiable relaxation that
-keeps the "attend to periodically-correlated lags via FFT" idea without
-the dynamic top-k/roll step. No general-purpose pretrained checkpoint
-exists for Autoformer (same situation as Informer - see that module's
-docstring) - validated against a from-scratch synthetic PyTorch reference
-using the same relaxed mechanism on both sides (see
-`weights/mappings/autoformer_mapping.py`).
-"""
-
 import keras
 from keras import layers, ops
 from keras_climate.forecasting.dlinear import SeriesDecomposition
@@ -39,10 +5,6 @@ from keras_climate.forecasting.informer import ValueEmbedding
 
 
 class AutoCorrelation(layers.Layer):
-    """FFT-based Auto-Correlation (see module docstring for the top-k ->
-    full-softmax relaxation). `query`/`key`/`value` may have different
-    time lengths (`key`/`value` are truncated/zero-padded to match
-    `query`'s length, matching the official cross-attention usage)."""
 
     def __init__(self, d_model, num_heads, **kwargs):
         super().__init__(**kwargs)
@@ -59,7 +21,7 @@ class AutoCorrelation(layers.Layer):
 
     def _split_heads(self, x, B, L):
         x = ops.reshape(x, (B, L, self.num_heads, self.head_dim))
-        return ops.transpose(x, (0, 2, 1, 3))  # (B, H, L, d)
+        return ops.transpose(x, (0, 2, 1, 3))
 
     def call(self, query, key, value):
         B = ops.shape(query)[0]
@@ -76,30 +38,24 @@ class AutoCorrelation(layers.Layer):
             k = ops.concatenate([k, zeros], axis=2)
             v = ops.concatenate([v, zeros], axis=2)
 
-        # Cross-correlation of Q, K over the time axis via FFT (lag axis
-        # ends up last): corr[..., tau] = sum_t q[t] * k[t - tau].
-        q_t = ops.transpose(q, (0, 1, 3, 2))  # (B, H, d, Lq)
+        q_t = ops.transpose(q, (0, 1, 3, 2))
         k_t = ops.transpose(k, (0, 1, 3, 2))
         q_re, q_im = ops.rfft(q_t)
         k_re, k_im = ops.rfft(k_t)
         corr_re = q_re * k_re + q_im * k_im
         corr_im = q_im * k_re - q_re * k_im
-        corr = ops.irfft((corr_re, corr_im), fft_length=Lq)  # (B, H, d, Lq)
+        corr = ops.irfft((corr_re, corr_im), fft_length=Lq)
 
-        weights = ops.softmax(ops.mean(corr, axis=2), axis=-1)  # (B, H, Lq)
+        weights = ops.softmax(ops.mean(corr, axis=2), axis=-1)
 
-        # Aggregate V via a circular convolution with `weights` along the
-        # time axis (equivalent to a weighted sum of circularly
-        # time-shifted V over every lag, computed via FFT rather than an
-        # explicit top-k lag loop - see module docstring).
-        v_t = ops.transpose(v, (0, 1, 3, 2))  # (B, H, d, Lq)
-        w_re, w_im = ops.rfft(weights)  # (B, H, Lq//2+1)
-        v_re, v_im = ops.rfft(v_t)  # (B, H, d, Lq//2+1)
+        v_t = ops.transpose(v, (0, 1, 3, 2))
+        w_re, w_im = ops.rfft(weights)
+        v_re, v_im = ops.rfft(v_t)
         w_re, w_im = w_re[:, :, None, :], w_im[:, :, None, :]
         out_re = v_re * w_re - v_im * w_im
         out_im = v_re * w_im + v_im * w_re
-        agg = ops.irfft((out_re, out_im), fft_length=Lq)  # (B, H, d, Lq)
-        agg = ops.transpose(agg, (0, 1, 3, 2))  # (B, H, Lq, d)
+        agg = ops.irfft((out_re, out_im), fft_length=Lq)
+        agg = ops.transpose(agg, (0, 1, 3, 2))
 
         out = ops.transpose(agg, (0, 2, 1, 3))
         out = ops.reshape(out, (B, Lq, self.d_model))
@@ -159,15 +115,6 @@ class AutoformerDecoderLayer(layers.Layer):
 def Autoformer(seq_len=96, label_len=48, pred_len=24, num_channels=7, d_model=64, num_heads=4,
                d_ff=128, encoder_layers=2, decoder_layers=1, moving_avg=25, dropout=0.1,
                name="autoformer"):
-    """Inputs:
-        encoder_series: (B, seq_len, num_channels) - the lookback window.
-        label_series: (B, label_len, num_channels) - the last `label_len`
-            real values from the lookback window, used to initialize the
-            decoder's seasonal/trend components (Autoformer decomposes
-            this tail once up front, then pads: zeros for the seasonal
-            horizon, the tail's mean for the trend horizon).
-    Output: (B, pred_len, num_channels).
-    """
     enc_in = keras.Input((seq_len, num_channels), name="encoder_series")
     label_in = keras.Input((label_len, num_channels), name="label_series")
 

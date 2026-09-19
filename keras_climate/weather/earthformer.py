@@ -1,26 +1,9 @@
-"""
-keras_climate.weather.earthformer
--------------------------------------
-Earthformer (Gao et al. 2022): a hierarchical spatiotemporal transformer
-built from "Cuboid Attention" - self-attention restricted to local
-(T x H x W) cuboids of the input tensor, with different cuboid shapes /
-strides per layer to capture both local and global structure cheaply.
-Encoder-decoder with a UNet-like hierarchy (downsample in space between
-encoder stages, upsample + skip connections in the decoder).
-"""
-
 import keras
 from keras import layers, ops
 from keras_climate.utils.layers import MLP, DropPath
 
 
 class CuboidAttention(layers.Layer):
-    """Partitions a (B, T, H, W, C) tensor into non-overlapping cuboids of
-    shape `cuboid_size = (ct, ch, cw)`, applies self-attention within each
-    cuboid independently (batched), then reassembles. `strategy="local"`
-    uses contiguous cuboids; `strategy="dilated"` gathers a strided cuboid
-    to approximate global context cheaply (a simplified stand-in for the
-    paper's local/global cuboid decomposition)."""
 
     def __init__(self, dim, num_heads, cuboid_size=(2, 4, 4), strategy="local", **kwargs):
         super().__init__(**kwargs)
@@ -44,10 +27,10 @@ class CuboidAttention(layers.Layer):
 
         if self.strategy == "local":
             x = ops.reshape(x, (B, nt, ct, nh, ch, nw, cw, C))
-            x = ops.transpose(x, (0, 1, 3, 5, 2, 4, 6, 7))  # B nt nh nw ct ch cw C
-        else:  # "dilated": swap the roles of (n, c) to gather strided elements
+            x = ops.transpose(x, (0, 1, 3, 5, 2, 4, 6, 7))
+        else:
             x = ops.reshape(x, (B, ct, nt, ch, nh, cw, nw, C))
-            x = ops.transpose(x, (0, 2, 4, 6, 1, 3, 5, 7))  # B nt nh nw ct ch cw C
+            x = ops.transpose(x, (0, 2, 4, 6, 1, 3, 5, 7))
 
         num_cuboids = nt * nh * nw
         cuboid_len = ct * ch * cw
@@ -58,9 +41,9 @@ class CuboidAttention(layers.Layer):
         B, nt, nh, nw, ct, ch, cw, C = meta
         x = ops.reshape(x, (B, nt, nh, nw, ct, ch, cw, C))
         if self.strategy == "local":
-            x = ops.transpose(x, (0, 1, 4, 2, 5, 3, 6, 7))  # B nt ct nh ch nw cw C
+            x = ops.transpose(x, (0, 1, 4, 2, 5, 3, 6, 7))
         else:
-            x = ops.transpose(x, (0, 4, 1, 5, 2, 6, 3, 7))  # B ct nt ch nh cw nw C
+            x = ops.transpose(x, (0, 4, 1, 5, 2, 6, 3, 7))
         x = ops.reshape(x, (B, nt * ct, nh * ch, nw * cw, C))
         return x
 
@@ -108,7 +91,7 @@ def _stage(x, dim, num_heads, depth, cuboid_sizes, name):
 
 
 def Earthformer(
-    input_shape=(10, 128, 128, 1),  # (T_in, H, W, C)
+    input_shape=(10, 128, 128, 1),
     pred_steps=10,
     base_dim=64,
     stage_depths=(2, 2, 2),
@@ -116,19 +99,9 @@ def Earthformer(
     cuboid_size=(2, 4, 4),
     name="earthformer",
 ):
-    """Hierarchical encoder-decoder over (T, H, W). Spatial resolution is
-    halved between encoder stages (via strided conv) and doubled back in the
-    decoder (via transposed conv), with skip connections, in the spirit of
-    Earthformer's UNet-style Cuboid Transformer backbone. The output channel
-    is projected to `pred_steps` future frames."""
     T_in, H, W, C_in = input_shape
     inputs = keras.Input(shape=input_shape, name="frames")
 
-    # Every `Conv2D`/`Conv2DTranspose` wrapped in `TimeDistributed` below is
-    # given an explicit inner `name=` - without one, Keras auto-assigns
-    # globally-incrementing names ("conv2d", "conv2d_1", ...) that depend on
-    # how many other unnamed Conv2D layers were created earlier in the same
-    # process, making weight-porting by name unreproducible.
     x = layers.TimeDistributed(layers.Conv2D(base_dim, 3, padding="same", name="conv"),
                                 name="stem")(inputs)
 
@@ -152,9 +125,7 @@ def Earthformer(
         x = layers.TimeDistributed(layers.Conv2D(dim, 1, name="conv"), name=f"skip_proj{stage_i}")(x)
         x = _stage(x, dim, num_heads, stage_depths[stage_i], [cuboid_size], name=f"dec_stage{stage_i}")
 
-    # Project the T_in encoded frames to pred_steps output frames along time,
-    # then a pointwise conv to the target channel count.
-    x = layers.Permute((2, 3, 1, 4), name="move_time_last")(x)  # B H W T C
+    x = layers.Permute((2, 3, 1, 4), name="move_time_last")(x)
     x = layers.Reshape((H, W, T_in * dim), name="merge_time_channel")(x)
     x = layers.Dense(pred_steps * C_in, name="time_channel_proj")(x)
     x = layers.Reshape((H, W, pred_steps, C_in), name="split_time_channel")(x)

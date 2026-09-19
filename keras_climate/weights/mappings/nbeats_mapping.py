@@ -1,18 +1,3 @@
-"""
-Mapping for `keras_climate.forecasting.nbeats.NBeats`, assuming a source
-checkpoint using this repo's own naming (no official/general-purpose
-checkpoint exists - see `nbeats.py`'s module docstring):
-
-    block{i}.fc{j}.{weight,bias}          (j in [0, num_fc_layers))
-    block{i}.theta.{weight,bias}
-
-Trend/Seasonality basis buffers (`backcast_basis`, `forecast_basis`,
-`{backcast,forecast}_{cos,sin}`) are derived purely from config (degree/
-num_harmonics/backcast_size/forecast_size), not learned - they have no
-source-key counterpart and should be excluded from a strict conversion
-check (see `test_nbeats.py`).
-"""
-
 import re
 
 

@@ -1,16 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.weather.metnet`.
-
-The original MetNet has no public code or weights; community
-reimplementations use substantially different building blocks (ConvGRU,
-space-to-depth preprocessing, an external axial-attention package) that
-don't line up with this repo's simplified design (see
-`weights/mappings/metnet_mapping.py`'s module docstring for the full
-caveat) - the round-trip test below validates against a from-scratch
-PyTorch reference implementing *this* architecture instead.
-
-Run with: pytest keras_climate/weather/test_metnet.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -20,10 +7,6 @@ from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import convert_metnet_state_dict, build_metnet_mapper
 
 
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
-
 def test_builds_and_runs():
     model = MetNet(input_shape=(3, 64, 64, 2), lead_times=4, base_filters=8, attn_dim=16,
                     attn_layers=1, num_heads=2, downsample_factor=4, num_bins=1)
@@ -31,7 +14,7 @@ def test_builds_and_runs():
     lead = np.array([1], dtype="int32")
     y = keras.ops.convert_to_numpy(model([frames, lead]))
     assert y.shape == (1, 64, 64, 1)
-    assert (y >= 0).all() and (y <= 1).all()  # sigmoid output
+    assert (y >= 0).all() and (y <= 1).all()
 
 
 def test_categorical_head():
@@ -41,13 +24,10 @@ def test_categorical_head():
     lead = np.array([0], dtype="int32")
     y = keras.ops.convert_to_numpy(model([frames, lead]))
     assert y.shape == (1, 32, 32, 5)
-    # softmax head: probabilities over bins sum to 1 per pixel.
     assert np.allclose(y.sum(axis=-1), 1.0, atol=1e-5)
 
 
 def test_lead_time_conditioning_changes_output():
-    """Different lead times must actually condition the output (the
-    lead-time embedding is added into the context tower's features)."""
     model = MetNet(input_shape=(2, 32, 32, 1), lead_times=4, base_filters=8, attn_dim=8,
                     attn_layers=1, num_heads=2, downsample_factor=2, num_bins=1)
     frames = np.random.randn(1, 2, 32, 32, 1).astype("float32")
@@ -57,19 +37,11 @@ def test_lead_time_conditioning_changes_output():
 
 
 def test_axial_attention_row_and_column_independence():
-    """Row attention must only mix information within a row, and column
-    attention only within a column - a bug here would leak information
-    across the wrong axis."""
     attn = AxialAttention2D(dim=8, num_heads=2)
     x = np.random.randn(1, 6, 6, 8).astype("float32")
     y = keras.ops.convert_to_numpy(attn(x))
     assert y.shape == x.shape
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference of this
-# repo's own architecture (see module docstring).
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -144,9 +116,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.attn_proj_in = nn.Conv2d(base_filters * 2, attn_dim, 1)
             self.axial_layers = nn.ModuleList([AxialAttn(attn_dim, num_heads) for _ in range(attn_layers)])
 
-            # kernel_size == stride (2), no padding: the one unambiguous
-            # transposed-conv convention across frameworks (see
-            # metnet.py's comment on the matching Keras side).
             n_up = downsample_factor.bit_length() - 1
             self.upsamples = nn.ModuleList()
             in_ch = attn_dim
@@ -177,10 +146,10 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             h = h + lead
 
             h = self.attn_proj_in(h)
-            h = h.permute(0, 2, 3, 1)  # NCHW -> NHWC
+            h = h.permute(0, 2, 3, 1)
             for layer in self.axial_layers:
                 h = layer(h)
-            h = h.permute(0, 3, 1, 2)  # NHWC -> NCHW
+            h = h.permute(0, 3, 1, 2)
 
             for layer in self.upsamples:
                 h = F.relu(layer["bn"](layer["deconv"](h)))
@@ -262,10 +231,10 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     with torch.no_grad():
         torch_out = torch_model(torch.from_numpy(frames_np), torch.tensor([lead_idx])).numpy()
 
-    keras_frames = np.transpose(frames_np, (0, 1, 3, 4, 2))  # -> (B, T, H, W, C)
+    keras_frames = np.transpose(frames_np, (0, 1, 3, 4, 2))
     keras_out = keras.ops.convert_to_numpy(
         keras_model([keras_frames, np.array([lead_idx], dtype="int32")], training=False))
-    keras_out = np.transpose(keras_out, (0, 3, 1, 2))  # (B, H, W, C) -> (B, C, H, W)
+    keras_out = np.transpose(keras_out, (0, 3, 1, 2))
 
     max_diff = np.abs(torch_out - keras_out).max()
     assert max_diff < 1e-2, f"MetNet weight port numerical mismatch: max abs diff {max_diff}"

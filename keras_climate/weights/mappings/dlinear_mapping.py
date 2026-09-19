@@ -1,16 +1,3 @@
-"""
-Mapping for `keras_climate.forecasting.dlinear.DLinear`, assuming a source
-checkpoint using the official Zeng et al. DLinear repo's own naming:
-
-    Linear_Seasonal.{weight,bias}                  (individual=False)
-    Linear_Trend.{weight,bias}
-    Linear_Seasonal.{c}.{weight,bias}              (individual=True)
-    Linear_Trend.{c}.{weight,bias}
-
-No decomposition-layer weights exist to map (moving-average pooling has
-no learnable parameters).
-"""
-
 import re
 
 

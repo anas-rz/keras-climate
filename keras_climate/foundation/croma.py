@@ -1,33 +1,3 @@
-"""
-keras_climate.foundation.croma
------------------------------------
-CROMA (Fuller et al. 2023): a dual-encoder foundation model that jointly
-represents SAR (e.g. Sentinel-1) and optical (e.g. Sentinel-2) imagery.
-Each modality has its own ViT encoder; a cross-attention fusion stack
-produces a joint multimodal representation. Pretraining combines a
-contrastive objective (aligning the two modalities' global representations)
-with per-modality masked-image modeling; this module exposes the encoders
-and fusion block so either objective can be wired up externally, plus a
-convenience `CROMA(...)` model that returns unimodal + joint embeddings.
-
-This is a faithful port of the official implementation
-(github.com/antofuller/CROMA, `use_croma.py`), not just an approximation -
-matching it exactly matters here because there is a real, publicly
-released checkpoint (`antofuller/CROMA` on HuggingFace) with three notable
-architectural choices that are easy to get wrong by "reasonable-sounding"
-default assumptions:
-
-  * Patch embedding is a plain `Linear` over flattened raw pixel patches
-    (`(c, patch_h, patch_w) -> dim`), not a Conv2D-based patch embedding.
-  * There is no learned position embedding at all - instead, every
-    attention layer adds a fixed (non-trainable) 2D ALiBi bias, computed
-    once from pairwise patch-grid distances.
-  * The SAR encoder is intentionally *half* the depth of the optical
-    encoder, and the joint/cross encoder is a single query stream (SAR)
-    progressively self- and cross-attending against a *fixed* optical
-    context - not a bidirectional update of both streams.
-"""
-
 import itertools
 import math
 
@@ -35,19 +5,10 @@ import numpy as np
 import keras
 from keras import layers, ops
 
-# PyTorch's plain `nn.LayerNorm(dim)` (no eps override, as used throughout
-# the reference) defaults to eps=1e-5 - Keras's own default is 1e-3, and
-# this codebase's other ViT blocks use 1e-6 (matching timm/MAE), so this
-# must be set explicitly to match the CROMA checkpoint.
 _LN_EPS = 1e-5
 
 
 def get_2d_alibi(num_heads, grid_size):
-    """Fixed (non-learned) 2D ALiBi attention bias, shape
-    (1, num_heads, num_patches, num_patches) - numpy port of the official
-    `get_2dalibi`, matching it bit-for-bit (pure function of grid geometry,
-    no learned parameters, so this never needs to be "ported" - just
-    recomputed identically)."""
     num_patches = grid_size * grid_size
     points = list(itertools.product(range(grid_size), range(grid_size)))
 
@@ -62,19 +23,17 @@ def get_2d_alibi(num_heads, grid_size):
         return (get_slopes_power_of_2(closest_power_of_2)
                 + get_slopes(2 * closest_power_of_2)[0::2][: n - closest_power_of_2])
 
-    slopes = np.array(get_slopes(num_heads), dtype=np.float64)[:, None]  # (num_heads, 1)
+    slopes = np.array(get_slopes(num_heads), dtype=np.float64)[:, None]
     idxs = []
     for p1 in points:
         for p2 in points:
             dist = math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
             idxs.append(dist * slopes * -1)
-    all_bias = np.concatenate(idxs, axis=1)  # (num_heads, num_patches*num_patches)
+    all_bias = np.concatenate(idxs, axis=1)
     return all_bias.reshape(1, num_heads, num_patches, num_patches).astype(np.float32)
 
 
 class CromaAttention(layers.Layer):
-    """Self-attention with an additive (fixed) relative-position bias and
-    a bias-free fused QKV projection - matches the reference `Attention`."""
 
     def __init__(self, dim, num_heads=16, **kwargs):
         super().__init__(**kwargs)
@@ -103,10 +62,6 @@ class CromaAttention(layers.Layer):
 
 
 class CromaCrossAttention(layers.Layer):
-    """Cross-attention: query stream `x` attends to a separate `context`
-    stream. The reference applies the *same* `input_norm` module to both
-    `x` and `context` (shared weights) - reusing one Keras layer instance
-    for both calls reproduces that exactly."""
 
     def __init__(self, dim, num_heads=16, **kwargs):
         super().__init__(**kwargs)
@@ -144,7 +99,6 @@ class CromaCrossAttention(layers.Layer):
 
 
 class CromaFFN(layers.Layer):
-    """Pre-norm MLP: `input_norm -> Linear -> GELU -> Linear`."""
 
     def __init__(self, dim, mult=4, **kwargs):
         super().__init__(**kwargs)
@@ -164,9 +118,6 @@ class CromaFFN(layers.Layer):
 
 
 class CromaSelfBlock(layers.Layer):
-    """One `BaseTransformer` layer: self-attention + FFN, each with its own
-    pre-residual (`x = sublayer(x) + x`, not `x = x + sublayer(norm(x))`
-    factored externally - the norm lives inside each sublayer)."""
 
     def __init__(self, dim, num_heads=16, mlp_mult=4, **kwargs):
         super().__init__(**kwargs)
@@ -180,8 +131,6 @@ class CromaSelfBlock(layers.Layer):
 
 
 class CromaCrossBlock(layers.Layer):
-    """One `BaseTransformerCrossAttn` layer: self-attn, then cross-attn
-    against a fixed `context`, then FFN."""
 
     def __init__(self, dim, num_heads=16, mlp_mult=4, **kwargs):
         super().__init__(**kwargs)
@@ -197,12 +146,6 @@ class CromaCrossBlock(layers.Layer):
 
 
 class ModalityEncoder(keras.Model):
-    """A standard ViT encoder for one modality (SAR or optical): flatten
-    non-overlapping pixel patches, project with a single `Dense` (matching
-    the reference's `Linear` patch embedding exactly - not a Conv2D), then
-    a stack of `CromaSelfBlock`s using a fixed 2D-ALiBi attention bias
-    (`attn_bias` is passed in at call time, since it depends on grid_size,
-    not per-encoder state)."""
 
     def __init__(self, dim=768, depth=12, in_chans=2, patch_size=8, num_heads=16,
                  mlp_mult=4, name="modality_encoder", **kwargs):
@@ -214,17 +157,13 @@ class ModalityEncoder(keras.Model):
         self.norm_out = layers.LayerNormalization(epsilon=_LN_EPS, name="norm_out")
 
     def call(self, imgs, attn_bias, training=False):
-        # imgs: (B, H, W, C) - Keras NHWC convention (reference is NCHW).
         p = self.patch_size
         B = ops.shape(imgs)[0]
         H, W, C = imgs.shape[1], imgs.shape[2], imgs.shape[3]
         gh, gw = H // p, W // p
 
-        # Reproduce the reference's exact per-patch flatten order,
-        # `'b c (h i) (w j) -> b (h w) (c i j)'` (channel slowest, then
-        # patch-row, then patch-col), despite our channels-last input.
         x = ops.reshape(imgs, (B, gh, p, gw, p, C))
-        x = ops.transpose(x, (0, 1, 3, 5, 2, 4))  # (B, gh, gw, C, p, p)
+        x = ops.transpose(x, (0, 1, 3, 5, 2, 4))
         x = ops.reshape(x, (B, gh * gw, C * p * p))
 
         x = self.linear_input(x)
@@ -234,8 +173,6 @@ class ModalityEncoder(keras.Model):
 
 
 def gap_ffn(dim, name):
-    """`GAP_FFN_{s1,s2}`: LayerNorm -> Linear(dim, 4*dim) -> GELU ->
-    Linear(4*dim, dim), applied to the mean-pooled encoder output."""
     return keras.Sequential([
         layers.LayerNormalization(epsilon=_LN_EPS, name="norm"),
         layers.Dense(int(4 * dim), name="fc1"),
@@ -245,10 +182,6 @@ def gap_ffn(dim, name):
 
 
 class CrossAttentionFusion(keras.Model):
-    """`BaseTransformerCrossAttn`: a single query stream (SAR) that
-    self-attends, then cross-attends against a *fixed* context (optical),
-    then FFN - repeated `depth` times - followed by a final LayerNorm.
-    Output length matches the query stream, not a concatenation of both."""
 
     def __init__(self, dim, num_heads=16, depth=6, mlp_mult=4, name="cross_encoder", **kwargs):
         super().__init__(name=name, **kwargs)
@@ -269,14 +202,6 @@ def CROMA(
     optical_chans=12,
     name="croma",
 ):
-    """Returns a model mapping {sar, optical} -> {sar_repr, optical_repr,
-    joint_repr}, where sar_repr/optical_repr are the GAP_FFN-projected
-    mean-pooled unimodal embeddings (for the contrastive objective) and
-    joint_repr is the fused multimodal token sequence (for downstream
-    dense/fusion tasks). `size="base"` (dim=768, depth=12) or `"large"`
-    (dim=1024, depth=24) matches the two officially released checkpoints;
-    both always use 16 attention heads and patch_size=8 (hardcoded in the
-    reference regardless of what's passed to it)."""
     dim, depth = {"base": (768, 12), "large": (1024, 24)}[size]
     num_heads = 16
     grid_size = img_size // patch_size

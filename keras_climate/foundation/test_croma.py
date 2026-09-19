@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.foundation.croma`.
-
-Run with: pytest keras_climate/foundation/test_croma.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -12,14 +7,9 @@ from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import load_croma_checkpoint, convert_croma_state_dict, build_croma_identity_mapper
 
 
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
-
 def test_alibi_bias_shape_and_symmetry():
     bias = get_2d_alibi(num_heads=4, grid_size=5)
     assert bias.shape == (1, 4, 25, 25)
-    # distance-based bias must be symmetric and zero on the diagonal.
     assert np.allclose(bias[0, 0], bias[0, 0].T)
     assert np.allclose(np.diagonal(bias[0, 0]), 0.0)
 
@@ -42,14 +32,6 @@ def test_sar_encoder_is_half_depth_of_optical():
     assert len(sar_blocks) == len(opt_blocks) // 2
 
 
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against the official architecture (see
-# `foundation/croma.py`'s module docstring for why this differs so much
-# from a "reasonable-sounding" ViT default: Linear-on-flattened-patches,
-# 2D ALiBi instead of learned position embeddings, asymmetric SAR/optical
-# depths, single-query-stream cross-attention fusion).
-# --------------------------------------------------------------------------
-
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
     import torch.nn as nn
@@ -62,9 +44,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         def __init__(self, dim, mult=4):
             super().__init__()
             self.input_norm = nn.LayerNorm(dim)
-            # Dropout(0) is a real (if inert) member of the reference's
-            # `net` Sequential - keeping it preserves the index alignment
-            # the mapper expects (`net.0` = fc1, `net.3` = fc2).
             self.net = nn.Sequential(nn.Linear(dim, int(dim * mult)), nn.GELU(), nn.Dropout(0.0),
                                       nn.Linear(int(dim * mult), dim))
 
@@ -188,9 +167,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     translated = convert_croma_state_dict(flat, encoder_depth=depth)
 
-    # `CROMA(...)` only builds the two hardcoded (dim, depth) presets
-    # ("base"/"large"); assemble a small model with the same test dims
-    # directly from its building blocks instead.
     from keras_climate.foundation.croma import ModalityEncoder, CrossAttentionFusion, gap_ffn
     sar_in = keras.Input((img_size, img_size, 2), name="sar")
     opt_in = keras.Input((img_size, img_size, 12), name="optical")
@@ -232,9 +208,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
 @pytest.mark.pretrained
 def test_real_pretrained_croma_base_checkpoint():
-    """Downloads the real `antofuller/CROMA` base checkpoint and confirms
-    it loads cleanly. Run explicitly with `pytest -m pretrained` (network +
-    ~740MB download, cached after the first run)."""
     pytest.importorskip("torch")
     from keras_climate.weights.pretrained import croma_base
 

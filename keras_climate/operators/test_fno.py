@@ -1,8 +1,3 @@
-"""Build/shape sanity checks + PyTorch weight-port round-trip test for
-`keras_climate.operators.fno`.
-
-Run with: pytest keras_climate/operators/test_fno.py
-"""
 import numpy as np
 import pytest
 import keras
@@ -11,10 +6,6 @@ from keras_climate.operators.fno import FNO2D, SpectralConv2D
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_fno_mapper
 
-
-# --------------------------------------------------------------------------
-# Build / forward-pass sanity checks (Keras only, no torch required)
-# --------------------------------------------------------------------------
 
 def test_builds_and_runs():
     model = FNO2D(input_shape=(32, 32, 1), out_channels=1, width=16, modes1=6, modes2=6,
@@ -25,8 +16,6 @@ def test_builds_and_runs():
 
 
 def test_resolution_invariance():
-    """The whole point of a neural operator: the same weights should
-    apply to a different input grid resolution unchanged."""
     model = FNO2D(input_shape=(16, 16, 1), out_channels=1, width=8, modes1=4, modes2=4,
                    num_layers=1, add_grid=False)
     x_small = np.random.randn(1, 16, 16, 1).astype("float32")
@@ -40,12 +29,6 @@ def test_resolution_invariance():
     y_large = keras.ops.convert_to_numpy(model2(x_large))
     assert y_large.shape == (1, 32, 32, 1)
 
-
-# --------------------------------------------------------------------------
-# PyTorch weight-port round-trip against a from-scratch reference matching
-# the original Li et al. FNO architecture (no verifiable real checkpoint
-# exists - see module docstring).
-# --------------------------------------------------------------------------
 
 def test_weight_port_roundtrip_matches_pytorch_reference():
     torch = pytest.importorskip("torch")
@@ -97,15 +80,14 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.register_buffer("grid", torch.from_numpy(np.stack([gx, gy], axis=-1)))
 
         def forward(self, x):
-            # x: (B, H, W, in_chans) channels-last, matching this repo's Keras convention
             B = x.shape[0]
             grid = self.grid.unsqueeze(0).expand(B, -1, -1, -1)
             x = torch.cat([x, grid], dim=-1)
             x = self.fc0(x)
-            x = x.permute(0, 3, 1, 2)  # (B, C, H, W) for the spectral/pointwise convs
+            x = x.permute(0, 3, 1, 2)
             for blk in self.blocks:
                 x = blk(x)
-            x = x.permute(0, 2, 3, 1)  # back to channels-last
+            x = x.permute(0, 2, 3, 1)
             x = F.gelu(self.fc1(x))
             return self.fc2(x)
 
@@ -129,7 +111,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             continue
         if v.is_complex():
             base = k.rsplit(".", 1)[0]
-            name = k.rsplit(".", 1)[1]  # "weights1" or "weights2"
+            name = k.rsplit(".", 1)[1]
             state_dict[f"{base}.{name}_re"] = v.real.numpy()
             state_dict[f"{base}.{name}_im"] = v.imag.numpy()
         else:
@@ -140,8 +122,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     mapper = build_fno_mapper(num_layers=num_layers)
     report = WeightConverter(keras_model, state_dict, mapper).convert(strict=False, verbose=False)
-    # `coord_grid/grid` is a non-trainable buffer derived purely from
-    # (H, W) config (see `CoordinateGrid`), not a checkpoint weight.
     assert report["missing_in_source"] == ["coord_grid/grid"]
     assert not report["unused_source_keys"]
 

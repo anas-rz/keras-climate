@@ -1,36 +1,3 @@
-"""
-Mapping for `keras_climate.remote_sensing.satmae.SatMAE` (encoder + MAE
-decoder), assuming a source checkpoint using the official
-facebookresearch/mae / SatMAE naming convention:
-
-    cls_token / pos_embed / patch_embed.proj.{weight,bias}
-    blocks.{i}.norm1.{weight,bias}
-    blocks.{i}.attn.qkv.{weight,bias}
-    blocks.{i}.attn.proj.{weight,bias}
-    blocks.{i}.norm2.{weight,bias}
-    blocks.{i}.mlp.fc1.{weight,bias} / mlp.fc2.{weight,bias}
-    norm.{weight,bias}                          (encoder's final norm)
-
-    decoder_embed.{weight,bias}
-    mask_token / decoder_pos_embed
-    decoder_blocks.{i}.{norm1,attn,norm2,mlp}... (same sub-structure as `blocks.{i}`)
-    decoder_norm.{weight,bias}
-    decoder_pred.{weight,bias}
-
-The encoder half is exactly what `build_vit_mapper` already handles (it's
-the standard ViT/MAE block naming shared by most transformer models in
-this repo); only the decoder needs its own rules since its blocks live
-under a different torch prefix (`decoder_blocks.` instead of `blocks.`)
-and it has a handful of MAE-specific top-level parameters
-(`decoder_embed`, `mask_token`, `decoder_pos_embed`, `decoder_norm`,
-`decoder_pred`) with no ViT equivalent.
-
-`mode="multispectral"`/`"temporal"` additionally need `group_embed` /
-`temporal_embed` - there is no single standardized checkpoint key name for
-these across SatMAE variants, so adjust `EXTRA_EMBED_KEYS` to match
-whatever specific checkpoint you're porting from.
-"""
-
 import re
 
 from keras_climate.weights.mappings.vit_mapping import build_vit_mapper
@@ -94,8 +61,6 @@ def build_satmae_decoder_mapper(keras_prefix="satmae_decoder", torch_prefix=""):
 
 
 def build_satmae_mapper(encoder_prefix="satmae_encoder", decoder_prefix="satmae_decoder", mode="single"):
-    """Full torch_key -> keras_key mapper for the whole `SatMAE(...)`
-    pretraining model (encoder + decoder)."""
     encoder_mapper = build_satmae_encoder_mapper(encoder_prefix, mode)
     decoder_mapper = build_satmae_decoder_mapper(decoder_prefix)
 

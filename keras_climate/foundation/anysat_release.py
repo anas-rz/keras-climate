@@ -1,76 +1,9 @@
-"""
-keras_climate.foundation.anysat_release
-------------------------------------------
-A faithful Keras port of the *officially released* AnySat architecture
-(Astruc et al. 2024, github.com/gastruc/AnySat) - loadable with the real
-public checkpoint (`g-astruc/AnySat` on HuggingFace, "base" size:
-embed_dim=768, depth=6, num_heads=12, 125.9M params).
-
-This is a *different, more complex* model than
-`keras_climate.foundation.anysat.AnySatEncoder` (this repo's own simpler
-"any modality, any resolution" ViT, whose module docstring documents that
-it does *not* match the public checkpoint). The real architecture has:
-
-  - Two projector families, one per modality kind:
-      * image modalities (aerial/aerial-flair/spot/naip): a Conv2D patch
-        embed, grouped into local "tiles" then further grouped by `scale`,
-        followed by a small 2-layer MLP (`AnySatImageProjector`).
-      * time-series modalities (s2/s1[-asc]/alos/l7/l8/modis): a Light
-        Temporal Attention Encoder (LTAE) that collapses the time axis per
-        pixel via a learned-query single-step attention, then the same
-        `scale`-grouping (`AnySatTimeSeriesProjector`).
-  - A shared *local* encoder (`AnySatLocalEncoder`, a small transformer
-    with iRPE-on-keys attention) that pools each output patch's group of
-    projector tokens down to one token per patch, per modality.
-  - A *global* encoder (plain ViT blocks, no RPE) that self-attends over
-    the concatenated per-patch tokens across all modalities present in a
-    given call.
-  - A final cross-attention *pooling* block (`AnySatCrossPoolingBlock`,
-    also iRPE-on-keys) that reduces the multi-modality token sequence back
-    down to one token per output patch (plus a CLS/tile token).
-
-iRPE ("image relative position encoding", Wu et al. 2021) here is much
-smaller than it looks: the released config only turns on the contextual
-bias *on keys* (`rpe_on="k"`), shared across heads, with just 8 relative-
-distance buckets. A non-obvious, empirically-confirmed quirk of the
-reference implementation's pure-Python (non-CUDA) fallback path is that
-`torch.gather`'s under-specified-dim broadcasting silently restricts the
-bias computation to *only the first attention head's queries* (the other
-heads' queries never participate), with the resulting bias then broadcast
-back across all heads when added to the attention scores. This is
-reproduced bit-for-bit here (see `_rpe_bias_k`) since the released
-checkpoint's weights were trained against exactly that behavior - "fixing"
-it would silently break loading the real weights, not correct a bug.
-
-Every reshape/grouping op in this module (the nested "unfold" sequences in
-the reference PyTorch code that interleave a modality's finer patch grid
-with the coarser `scale`-tile grid) was validated index-for-index against
-the actual `gastruc/AnySat` source (not re-derived from the paper) using
-small random-weight PyTorch reference runs - see this repo's PR history /
-`test_anysat_release.py` for the numerical round-trip tests this is
-checked against.
-
-Scope: `scale` (the ratio of the desired output patch size to 10m,
-`patch_size // 10` in the official API) and every modality's input spatial
-shape are fixed at model-construction time rather than passed per-call,
-matching this repo's convention elsewhere of a fixed `img_size` (ClimaX,
-Prithvi, ...) - the official model supports choosing `scale` and `output`
-per forward call, which would require dynamic-shape reshapes this port
-does not attempt. `output="dense"` (dense/subpatch feature maps) is not
-implemented, only `"tile"` and `"patch"` - see `AnySatRelease.call`.
-"""
-
 import numpy as np
 import keras
 from keras import layers, ops
 
-# --------------------------------------------------------------------------
-# Static config - mirrors gastruc/AnySat's hubconf.py `get_default_config`
-# --------------------------------------------------------------------------
 
 ANYSAT_CONFIGS = {
-    # (embed_dim, depth, num_heads) - only "base" has a public checkpoint;
-    # "tiny"/"small" are listed in the official hubconf as "coming soon".
     "tiny": dict(embed_dim=256, depth=2, num_heads=4),
     "small": dict(embed_dim=512, depth=4, num_heads=8),
     "base": dict(embed_dim=768, depth=6, num_heads=12),
@@ -83,8 +16,6 @@ ANYSAT_MODALITIES = [
 
 ANYSAT_IMAGE_MODALITIES = {"aerial", "aerial-flair", "spot", "naip"}
 
-# meters per local-grid cell - the `spatial_encoder.input_res` dict, used
-# for the *local* encoder's resolution-aware sincos position embedding.
 ANYSAT_INPUT_RES = {
     "aerial": 2, "aerial-flair": 2, "spot": 10, "naip": 10, "s2": 10,
     "s1-asc": 10, "s1-des": 10, "s1": 10, "l8": 10, "l7": 30, "alos": 30, "modis": 250,
@@ -94,9 +25,6 @@ _TS_LTAE_HEAD = dict(n_head=16, d_k=8)
 
 
 def anysat_projector_configs(embed_dim):
-    """Per-modality projector kwargs, mirroring hubconf's `get_default_config`
-    (values that don't depend on `embed_dim` are the released checkpoint's
-    fixed choices, not tunable)."""
     dim = embed_dim
     mlp_in = [dim // 8, dim // 2, dim, dim * 2, dim]
     configs = {
@@ -114,14 +42,6 @@ def anysat_projector_configs(embed_dim):
     }
     return configs
 
-
-# --------------------------------------------------------------------------
-# Numpy precompute: sincos position embeddings + iRPE relative-distance
-# buckets. All of these are pure functions of static config (embed_dim,
-# scale, resolution, grid size) - never of the input data - so they're
-# computed once in numpy at layer-build time and stored as constants,
-# rather than recomputed as ops inside `call`.
-# --------------------------------------------------------------------------
 
 def _sincos_1d(dim_half, pos):
     omega = np.arange(dim_half // 2, dtype=np.float64) / (dim_half / 2.0)
@@ -146,9 +66,6 @@ def pos_embed_with_scale(dim, grid_size, scale, cls_token=True, modis=False):
     if cls_token:
         pe = np.concatenate([np.zeros((1, dim)), pe], axis=0)
     if modis:
-        # matches gastruc/AnySat's `get_2d_sincos_pos_embed_with_scale(...,
-        # modis=True)`: a second all-zero row inserted right after the cls
-        # row, for the MODIS modality's single pooled token.
         pe = np.concatenate([np.zeros((1, dim)), pe], axis=0)
     return pe.astype("float32")
 
@@ -185,8 +102,6 @@ def _piecewise_index(rel):
 
 
 def _bucket_ids_2d(height, width, skip=1):
-    """iRPE (Euclidean method) relative-distance bucket IDs, exactly
-    matching gastruc/AnySat's `irpe.get_bucket_ids_2d(method="euc", ...)`."""
     rows = np.arange(height).reshape(height, 1).repeat(width, axis=1)
     cols = np.arange(width).reshape(1, width).repeat(height, axis=0)
     pos = np.stack([rows, cols], axis=2)
@@ -207,10 +122,6 @@ def _bucket_ids_2d(height, width, skip=1):
 
 
 def _bucket_flat_offset_index(height, width, skip=1):
-    """Flat gather index `idx` (length Lq*Lk) such that, given a lookup
-    table flattened to (..., Lq*num_buckets), `take(lookup_flat, idx,
-    axis=-1)` reshaped to (..., Lq, Lk) equals the (Lq, Lk) contextual RPE
-    bias - i.e. `idx[i*Lk+j] = bucket_ids[i,j] + i*num_buckets`."""
     bucket, num_buckets = _bucket_ids_2d(height, width, skip)
     Lq, Lk = bucket.shape
     offset = (np.arange(Lq) * num_buckets)[:, None]
@@ -218,8 +129,6 @@ def _bucket_flat_offset_index(height, width, skip=1):
 
 
 def _unfold(x, dim, size):
-    """Mirror torch.Tensor.unfold(dim, size, step=size): splits `dim` into
-    (n, size) and appends the new `size` axis at the very end."""
     shape = ops.shape(x)
     static_shape = x.shape
     n = static_shape[dim] // size
@@ -232,26 +141,15 @@ def _unfold(x, dim, size):
 
 
 def _rpe_bias_k(q, weight, flat_idx, num_buckets, Lq, Lk):
-    """Contextual RPE-on-keys bias, shape (B, 1, Lq, Lk), broadcastable
-    over all attention heads. See the module docstring for why only
-    `q`'s first head is used here - this replicates a `torch.gather`
-    broadcasting quirk in the reference implementation's CPU fallback
-    path that the released checkpoint's weights were trained against."""
     B = ops.shape(q)[0]
-    q0 = q[:, :1]  # (B, 1, Lq, head_dim) - head 0 only
-    lookup = ops.einsum("bhld,dn->bhln", q0, weight[0])  # (B, 1, Lq, num_buckets)
+    q0 = q[:, :1]
+    lookup = ops.einsum("bhld,dn->bhln", q0, weight[0])
     lookup_flat = ops.reshape(lookup, (B, 1, Lq * num_buckets))
     bias_flat = ops.take(lookup_flat, flat_idx, axis=-1)
     return ops.reshape(bias_flat, (B, 1, Lq, Lk))
 
 
-# --------------------------------------------------------------------------
-# Projectors
-# --------------------------------------------------------------------------
-
 class AnySatImageProjector(layers.Layer):
-    """Conv2D patch embed -> group into (10m-tile, scale-tile) subpatches
-    -> 2-layer MLP. `scale` is fixed per instance (see module docstring)."""
 
     def __init__(self, embed_dim, patch_size, in_chans, resolution, scale, bias=False, **kwargs):
         super().__init__(**kwargs)
@@ -282,7 +180,7 @@ class AnySatImageProjector(layers.Layer):
         super().build(input_shape)
 
     def call(self, x):
-        conv_out = self.patch_embed(x)  # (B, Hc, Wc, D)
+        conv_out = self.patch_embed(x)
         B = ops.shape(conv_out)[0]
         D, gs, scale = self.embed_dim, self.grid_size, self.scale
 
@@ -303,9 +201,6 @@ class AnySatImageProjector(layers.Layer):
 
 
 class AnySatTimeSeriesProjector(layers.Layer):
-    """Light Temporal Attention Encoder (LTAE) collapsing the time axis
-    per-pixel, then the same scale-tile grouping as the image projector
-    (minus the finer intra-tile conv-patch subdivision)."""
 
     def __init__(self, embed_dim, in_channels, T, in_norm, reduce_scale, scale,
                  n_head=16, d_k=8, mlp_in=None, **kwargs):
@@ -323,7 +218,6 @@ class AnySatTimeSeriesProjector(layers.Layer):
         self.scale_eff = max(1, scale // reduce_scale)
 
     def build(self, input_shape):
-        # input_shape: (B, T, H, W, Cin)
         H, W = input_shape[2], input_shape[3]
         se = self.scale_eff
         self.H, self.W = H, W
@@ -351,19 +245,12 @@ class AnySatTimeSeriesProjector(layers.Layer):
         pe_dim = self.d_model // self.n_head
         omega = np.arange(pe_dim, dtype=np.float64)
         denom = self.T_period ** (2 * (omega // 2) / pe_dim)
-        # A non-trainable weight (not `ops.convert_to_tensor`): under the TF
-        # backend, `build()` itself may run inside a throwaway scratch
-        # FuncGraph for automatic output-shape inference, which would
-        # permanently (and invalidly) scope a plain constant tensor to that
-        # discarded graph - `add_weight` instead creates a real persistent
-        # variable.
         self._pe_denom = self.add_weight(shape=(pe_dim,), initializer=keras.initializers.Constant(denom),
                                           trainable=False, name="pe_denom")
         self._pe_dim = pe_dim
         super().build(input_shape)
 
     def _positional_encoder(self, batch_positions):
-        # batch_positions: (N, T) -> (N, T, pe_dim)
         table = batch_positions[:, :, None] / self._pe_denom[None, None, :]
         sin_part = ops.sin(table)
         cos_part = ops.cos(table)
@@ -373,12 +260,11 @@ class AnySatTimeSeriesProjector(layers.Layer):
         return ops.tile(out, (1, 1, self.n_head))
 
     def call(self, x, dates):
-        # x: (B,T,H,W,Cin), dates: (B,T)
         B = ops.shape(x)[0]
         T = x.shape[1]
         H, W = self.H, self.W
 
-        out = ops.transpose(x, (0, 2, 3, 1, 4))  # (B,H,W,T,Cin)
+        out = ops.transpose(x, (0, 2, 3, 1, 4))
         out = ops.reshape(out, (B * H * W, T, self.in_channels))
 
         d = ops.reshape(out, (-1, self.in_channels))
@@ -389,7 +275,7 @@ class AnySatTimeSeriesProjector(layers.Layer):
         if self.in_norm is not None:
             out = self.in_norm(out)
 
-        bp = ops.tile(dates[:, None, None, :], (1, H, W, 1))  # (B,H,W,T)
+        bp = ops.tile(dates[:, None, None, :], (1, H, W, 1))
         bp = ops.reshape(bp, (B * H * W, T))
         out = out + self._positional_encoder(bp)
 
@@ -398,7 +284,7 @@ class AnySatTimeSeriesProjector(layers.Layer):
         q = ops.tile(self.Q[:, None, :], (1, N, 1))
         q = ops.reshape(q, (n_head * N, d_k))
 
-        k = self.fc1_k(out)  # (N,T,n_head*d_k)
+        k = self.fc1_k(out)
         k = ops.reshape(k, (N, T, n_head, d_k))
         k = ops.transpose(k, (2, 0, 1, 3))
         k = ops.reshape(k, (n_head * N, T, d_k))
@@ -409,7 +295,7 @@ class AnySatTimeSeriesProjector(layers.Layer):
 
         attn = ops.matmul(q[:, None, :], ops.transpose(k, (0, 2, 1))) / ops.sqrt(ops.cast(d_k, "float32"))
         attn = ops.softmax(attn, axis=-1)
-        att_out = ops.matmul(attn, v)  # (n_head*N,1,d_model/n_head)
+        att_out = ops.matmul(attn, v)
         att_out = ops.reshape(att_out, (n_head, N, self.d_model // n_head))
         out = ops.transpose(att_out, (1, 0, 2))
         out = ops.reshape(out, (N, self.d_model))
@@ -430,21 +316,11 @@ class AnySatTimeSeriesProjector(layers.Layer):
         return t
 
 
-# --------------------------------------------------------------------------
-# Transformer blocks
-# --------------------------------------------------------------------------
-
 def _mlp(x, fc1, fc2):
-    # approximate=False: PyTorch's default `nn.GELU()` is the exact
-    # erf-based formula, unlike `keras.ops.gelu`'s own default
-    # (`approximate=True`, the tanh approximation) - mismatching this
-    # compounds into a real, measurable discrepancy across ~13 blocks.
     return fc2(ops.gelu(fc1(x), approximate=False))
 
 
 class AnySatPlainBlock(layers.Layer):
-    """Standard pre-norm ViT block (no RPE) - used for the "global" blocks
-    that self-attend across all modalities' pooled patch tokens."""
 
     def __init__(self, embed_dim, num_heads, mlp_ratio=4.0, **kwargs):
         super().__init__(**kwargs)
@@ -479,10 +355,6 @@ class AnySatPlainBlock(layers.Layer):
 
 
 class AnySatLocalEncoder(layers.Layer):
-    """Shared local transformer (the official `TransformerMulti`): pools
-    each modality's subpatch-token group down to one CLS-pooled token per
-    output patch, using iRPE-on-keys attention. One instance is shared
-    across every modality/scale combination in a given `AnySatRelease`."""
 
     def __init__(self, embed_dim, depth, num_heads, mlp_ratio=4.0, **kwargs):
         super().__init__(**kwargs)
@@ -498,15 +370,6 @@ class AnySatLocalEncoder(layers.Layer):
         self.cls_token = self.add_weight(shape=(1, 1, d), initializer="zeros", name="cls_token")
         self.blocks = []
         for i in range(self.depth):
-            # epsilon=1e-5 (not 1e-6): unlike `AnyModule`'s own blocks
-            # (global + cross-pooling, which explicitly override to 1e-6),
-            # `TransformerMulti` (this local encoder) is built with
-            # `norm_layer=nn.LayerNorm` left at its *default* - i.e.
-            # PyTorch's own default LayerNorm eps (1e-5), confirmed against
-            # the released checkpoint's actual module (a LN-eps mismatch is
-            # invisible with random weights but produces large real
-            # divergence with the trained weights, since some rows have
-            # near-zero variance where eps dominates).
             blk = {
                 "norm1": layers.LayerNormalization(epsilon=1e-5, name=f"block{i}_norm1"),
                 "qkv": layers.Dense(d * 3, name=f"block{i}_attn_qkv"),
@@ -536,10 +399,6 @@ class AnySatLocalEncoder(layers.Layer):
         return blk["proj"](out)
 
     def call(self, tokens, pos_embed, flat_idx, num_buckets, Lq, Lk):
-        # tokens: (B*NumPatches, SubpatchCount, C); pos_embed: (SubpatchCount+1, C) constant.
-        # flat_idx/num_buckets/Lq/Lk: RPE bucket-gather index, precomputed by the caller
-        # (see module docstring / AnySatRelease._build_meta for why this isn't cached
-        # lazily in here - Keras also disallows mixed tensor/non-tensor nested call args).
         B_ = ops.shape(tokens)[0]
         C = self.embed_dim
         cls = ops.broadcast_to(self.cls_token, (B_, 1, C))
@@ -550,14 +409,10 @@ class AnySatLocalEncoder(layers.Layer):
             x = x + self._attn(blk["norm1"](x), blk, flat_idx, num_buckets, Lq, Lk)
             x = x + _mlp(blk["norm2"](x), blk["fc1"], blk["fc2"])
         x = self.norm(x)
-        return x[:, 0]  # pooled CLS token, (B*NumPatches, C)
+        return x[:, 0]
 
 
 class AnySatCrossPoolingBlock(layers.Layer):
-    """The final `CrossBlockMulti`: cross-attention pooling that reduces
-    the (1 + n_modalities*num_patches [+modis]) global token sequence back
-    down to (1 + num_patches) tokens, using a learned per-patch query and
-    iRPE-on-keys attention on the resulting patch grid."""
 
     def __init__(self, embed_dim, num_heads, mlp_ratio=4.0, **kwargs):
         super().__init__(**kwargs)
@@ -582,21 +437,20 @@ class AnySatCrossPoolingBlock(layers.Layer):
         super().build(input_shape)
 
     def call(self, x, pos_embed_q, n_modalities, num_patches_side, flat_idx, num_buckets, modis=False):
-        # x: (B, 1 + n_modalities*num_patches [+modis], C) already layernorm'd by caller? no: apply norm1 here
         h = self.norm1(x)
         B, N, C = ops.shape(h)[0], h.shape[1], self.embed_dim
         num_patches = num_patches_side * num_patches_side
         modis_i = int(modis)
         Nq = num_patches + 1 + modis_i
 
-        q_ = self.q_learned + pos_embed_q[None]  # (1, Nq, C)
+        q_ = self.q_learned + pos_embed_q[None]
         q_ = ops.broadcast_to(q_, (B, Nq, C))
         q = ops.transpose(ops.reshape(q_, (B, Nq, self.num_heads, self.head_dim)), (0, 2, 1, 3))
         k = ops.transpose(ops.reshape(self.wk(h), (B, N, self.num_heads, self.head_dim)), (0, 2, 1, 3))
         v = ops.transpose(ops.reshape(self.wv(h), (B, N, self.num_heads, self.head_dim)), (0, 2, 1, 3))
 
         attn = ops.matmul(q, ops.transpose(k, (0, 1, 3, 2))) * self.scale
-        rpe = _rpe_bias_k(q, self.rpe_k_weight, flat_idx, num_buckets, Nq, Nq)  # (B,1,Nq,Nq)
+        rpe = _rpe_bias_k(q, self.rpe_k_weight, flat_idx, num_buckets, Nq, Nq)
         rpe_prefix = rpe[:, :, :, :1 + modis_i]
         rpe_tiled = ops.tile(rpe[:, :, :, 1 + modis_i:], (1, 1, 1, n_modalities))
         attn = attn + ops.concatenate([rpe_prefix, rpe_tiled], axis=-1)
@@ -611,29 +465,7 @@ class AnySatCrossPoolingBlock(layers.Layer):
         return x
 
 
-# --------------------------------------------------------------------------
-# Top-level model
-# --------------------------------------------------------------------------
-
 class AnySatRelease(keras.Model):
-    """The full released AnySat encoder, for a fixed set of modalities,
-    their input shapes, and a fixed `scale` (= desired output patch size in
-    meters // 10, e.g. `scale=2` for a 20m output patch).
-
-    `modalities`: list of modality names (subset of `ANYSAT_MODALITIES`).
-    `input_shapes`: dict[modality -> shape], `(H, W, C)` for image
-        modalities, `(T, H, W, C)` for time-series modalities - all
-        modalities must agree on the resulting output patch grid size
-        (`num_patches_side`), matching the real model's requirement that
-        every modality cover the same footprint at the same `scale`.
-    `output`: `"tile"` (single pooled embedding) or `"patch"` (spatial grid
-        of per-patch embeddings) - `"dense"`/subpatch output is not
-        implemented (see module docstring).
-
-    Only the requested `modalities`' projectors are built (not all 11 the
-    official checkpoint ships) - pass `modalities=ANYSAT_MODALITIES` to
-    build every projector for a full strict weight load.
-    """
 
     def __init__(self, modalities, input_shapes, scale, size="base",
                  embed_dim=None, depth=None, num_heads=None, mlp_ratio=4.0,
@@ -672,11 +504,6 @@ class AnySatRelease(keras.Model):
                        for i in range(self.depth)]
         self.cross_pool = AnySatCrossPoolingBlock(self.embed_dim, self.num_heads, mlp_ratio, name="block_cross")
 
-        # Precomputed eagerly in __init__ (not lazily on first `call()`):
-        # under the TF backend, a layer's first invocation may be traced
-        # inside a throwaway "scratch" FuncGraph to infer output shapes,
-        # which would permanently bind these `ops.convert_to_tensor`
-        # constants to that discarded graph if created lazily instead.
         self._build_meta()
 
     def _build_meta(self):
@@ -711,7 +538,7 @@ class AnySatRelease(keras.Model):
             self._local_rpe[m] = (ops.convert_to_tensor(flat_idx), num_buckets, Lq, Lk)
 
             if m == "modis":
-                continue  # modis contributes a single token, not a patch-grid entry
+                continue
             if num_patches_side is None:
                 num_patches_side = Htp
             elif num_patches_side != Htp:
@@ -727,17 +554,11 @@ class AnySatRelease(keras.Model):
         flat_idx, num_buckets, Lq, Lk = _bucket_flat_offset_index(
             num_patches_side, num_patches_side, skip=1 + int(self._modis))
         self._cross_rpe = (ops.convert_to_tensor(flat_idx), num_buckets, Lq, Lk)
-        # `CrossRPEAttentionMulti`'s *own* query position embedding - a
-        # separate one from `self._global_pos_embed` above (which never
-        # carries a modis row): this one does, when `modis` is present.
         self._cross_pos_embed_q = ops.convert_to_tensor(
             pos_embed_with_scale(self.embed_dim, num_patches_side, self.scale,
                                   cls_token=True, modis=self._modis))
 
     def call(self, inputs):
-        """`inputs`: dict with, for each modality present, either a single
-        tensor (image modalities) or a `(tensor, dates)` tuple (time-series
-        modalities, `dates` shape `(B, T)`)."""
         modality_order = [m for m in self.modalities if m in inputs]
         if not modality_order:
             raise ValueError("no known modality found in `inputs`")
@@ -753,7 +574,7 @@ class AnySatRelease(keras.Model):
             pooled = self.local_encoder(tokens, pos_embed=self._local_pos_embed[m],
                                          flat_idx=flat_idx, num_buckets=num_buckets, Lq=Lq, Lk=Lk)
             if m == "modis":
-                modis_tokens = pooled  # (B, C) - one token per batch element
+                modis_tokens = pooled
                 if batch_size is None:
                     batch_size = ops.shape(pooled)[0]
             else:

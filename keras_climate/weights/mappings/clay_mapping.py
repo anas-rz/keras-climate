@@ -1,27 +1,9 @@
-"""
-Mapping for `keras_climate.foundation.clay.ClayEncoder`, targeting the
-official Clay-foundation/model `Encoder` naming convention.
-
-No real Clay checkpoint is small enough to validate here (see
-`foundation/clay.py`'s module docstring), so - unlike this repo's other
-mappings - this one hasn't been checked against a real downloaded
-checkpoint. It's built directly from the official source
-(`claymodel/model.py::Encoder`, `claymodel/factory.py::DynamicEmbedding`,
-`claymodel/backbone.py::Transformer`) and should be a close match, but
-budget for possible small naming adjustments against whatever specific
-checkpoint you're actually porting from (a real Lightning checkpoint will
-also need its `model.encoder.` (or similar) prefix stripped first via
-`key_prefix_strip`).
-"""
-
 import re
 
 import numpy as np
 
 
 def convert_clay_encoder_state_dict(flat_state_dict, depth=12, num_latent_tokens=128):
-    """Translates a (flat, un-prefixed) Clay `Encoder` state_dict into
-    `{keras_weight_path: np.ndarray}`."""
     out = {}
 
     def copy(torch_key, keras_key):
@@ -30,7 +12,6 @@ def convert_clay_encoder_state_dict(flat_state_dict, depth=12, num_latent_tokens
 
     copy("cls_token", "clay_encoder/cls_token")
 
-    # DynamicEmbedding
     pe = "patch_embedding"
     copy(f"{pe}.fclayer.l1.weight", "clay_encoder/patch_embedding/fclayer/l1/kernel")
     copy(f"{pe}.fclayer.l1.bias", "clay_encoder/patch_embedding/fclayer/l1/bias")
@@ -46,7 +27,6 @@ def convert_clay_encoder_state_dict(flat_state_dict, depth=12, num_latent_tokens
     copy(f"{wg}.fc_bias.weight", f"{kwg}/fc_bias/kernel")
     copy(f"{wg}.fc_bias.bias", f"{kwg}/fc_bias/bias")
 
-    # nn.TransformerEncoder(layer, num_layers=1) -> `encoder.layers.0.*`
     el = f"{wg}.encoder.layers.0"
     kel = f"{kwg}/encoder_layer"
     if f"{el}.self_attn.in_proj_weight" in flat_state_dict:
@@ -63,7 +43,6 @@ def convert_clay_encoder_state_dict(flat_state_dict, depth=12, num_latent_tokens
     copy(f"{el}.norm2.weight", f"{kel}/norm2/gamma")
     copy(f"{el}.norm2.bias", f"{kel}/norm2/beta")
 
-    # Main lucidrains-style Transformer backbone
     for i in range(depth):
         tp, kp = f"transformer.layers.{i}", f"clay_encoder/block{i}"
         copy(f"{tp}.0.norm.weight", f"{kp}/attn_norm/gamma")
@@ -83,6 +62,4 @@ def convert_clay_encoder_state_dict(flat_state_dict, depth=12, num_latent_tokens
 
 
 def build_clay_identity_mapper():
-    """`convert_clay_encoder_state_dict` already produces keys spelled
-    exactly as the target Keras weight paths."""
     return lambda k: k

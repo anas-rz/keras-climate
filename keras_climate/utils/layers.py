@@ -1,23 +1,10 @@
-"""
-keras_climate.utils.layers
----------------------------
-Shared building blocks used across remote_sensing / forecasting / weather /
-foundation model families. Written against Keras 3 (backend-agnostic:
-TensorFlow, JAX or PyTorch backend all work).
-"""
-
 import math
 import numpy as np
 import keras
 from keras import layers, ops
 
 
-# --------------------------------------------------------------------------
-# Generic utility layers
-# --------------------------------------------------------------------------
-
 class DropPath(layers.Layer):
-    """Stochastic depth, per-sample path dropout (as used in ViT/Swin/ConvNeXt)."""
 
     def __init__(self, drop_prob=0.0, **kwargs):
         super().__init__(**kwargs)
@@ -39,7 +26,6 @@ class DropPath(layers.Layer):
 
 
 class MLP(layers.Layer):
-    """Standard transformer MLP (fc -> act -> drop -> fc -> drop)."""
 
     def __init__(self, hidden_dim, out_dim=None, act="gelu", drop=0.0, **kwargs):
         super().__init__(**kwargs)
@@ -67,7 +53,6 @@ class MLP(layers.Layer):
 
 
 class GatedResidualNetwork(layers.Layer):
-    """GRN as used in TFT: nonlinear layer with a gated skip connection."""
 
     def __init__(self, units, dropout=0.1, **kwargs):
         super().__init__(**kwargs)
@@ -75,11 +60,6 @@ class GatedResidualNetwork(layers.Layer):
         self.dropout = dropout
 
     def build(self, input_shape):
-        # Explicit names are required, not cosmetic: without them Keras
-        # auto-assigns globally-incrementing names ("dense_16", ...) that
-        # depend on how many other unnamed Dense/LayerNormalization layers
-        # were created earlier in the same process - since TFT builds many
-        # GRN instances, this makes weight-porting by name unreproducible.
         self.skip = layers.Dense(self.units, name="skip") if input_shape[-1] != self.units else None
         self.fc1 = layers.Dense(self.units, activation="elu", name="fc1")
         self.fc2 = layers.Dense(self.units, name="fc2")
@@ -99,12 +79,7 @@ class GatedResidualNetwork(layers.Layer):
         return self.norm(skip + h)
 
 
-# --------------------------------------------------------------------------
-# Attention blocks
-# --------------------------------------------------------------------------
-
 class MultiHeadSelfAttention(layers.Layer):
-    """Standard ViT-style multi-head self attention."""
 
     def __init__(self, dim, num_heads=8, qkv_bias=True, attn_drop=0.0, proj_drop=0.0, **kwargs):
         super().__init__(**kwargs)
@@ -143,7 +118,6 @@ class MultiHeadSelfAttention(layers.Layer):
 
 
 class SpatialReductionAttention(layers.Layer):
-    """Efficient self-attention with spatial reduction (SegFormer / PVT)."""
 
     def __init__(self, dim, num_heads=8, sr_ratio=1, qkv_bias=True, attn_drop=0.0, proj_drop=0.0, **kwargs):
         super().__init__(**kwargs)
@@ -202,7 +176,6 @@ class SpatialReductionAttention(layers.Layer):
 
 
 class TransformerEncoderBlock(layers.Layer):
-    """Pre-norm ViT encoder block: LN -> MHSA -> +res -> LN -> MLP -> +res."""
 
     def __init__(self, dim, num_heads, mlp_ratio=4.0, qkv_bias=True,
                  drop=0.0, attn_drop=0.0, drop_path=0.0, **kwargs):
@@ -220,8 +193,6 @@ class TransformerEncoderBlock(layers.Layer):
 
 
 class SegformerBlock(layers.Layer):
-    """MiT (SegFormer backbone) encoder block using spatial-reduction attention
-    and a depthwise-conv "Mix-FFN" instead of a plain MLP."""
 
     def __init__(self, dim, num_heads, mlp_ratio=4.0, sr_ratio=1, drop=0.0,
                  attn_drop=0.0, drop_path=0.0, **kwargs):
@@ -255,12 +226,7 @@ class SegformerBlock(layers.Layer):
         return x
 
 
-# --------------------------------------------------------------------------
-# Patch embedding
-# --------------------------------------------------------------------------
-
 class PatchEmbed2D(layers.Layer):
-    """Conv-based non-overlapping patch embedding, ViT-style. Input NHWC -> (B, N, C)."""
 
     def __init__(self, patch_size, embed_dim, in_chans=None, norm=True, **kwargs):
         super().__init__(**kwargs)
@@ -284,7 +250,6 @@ class PatchEmbed2D(layers.Layer):
 
 
 class OverlapPatchEmbed(layers.Layer):
-    """Overlapping-stride patch embedding used in SegFormer/PVTv2 stages."""
 
     def __init__(self, patch_size, stride, embed_dim, **kwargs):
         super().__init__(**kwargs)
@@ -293,11 +258,6 @@ class OverlapPatchEmbed(layers.Layer):
         self.embed_dim = embed_dim
 
     def build(self, input_shape):
-        # Same rationale as `ConvBNAct`: this is a strided conv, so Keras's
-        # "same" padding can pad asymmetrically while the official SegFormer
-        # implementation always pads symmetrically with `patch_size // 2` -
-        # pad explicitly + "valid" to match it exactly (needed for faithful
-        # weight porting from a real MiT checkpoint).
         pad = self.patch_size // 2
         self.pad = layers.ZeroPadding2D(pad, name="pad") if pad > 0 else None
         self.proj = layers.Conv2D(self.embed_dim, kernel_size=self.patch_size,
@@ -316,8 +276,6 @@ class OverlapPatchEmbed(layers.Layer):
 
 
 class PatchEmbed3D(layers.Layer):
-    """Spatiotemporal patch embedding for video / multi-temporal satellite stacks.
-    Input: (B, T, H, W, C) -> tokens (B, N, D). Used by SatMAE-temporal / Prithvi."""
 
     def __init__(self, patch_size, tubelet_size, embed_dim, **kwargs):
         super().__init__(**kwargs)
@@ -342,52 +300,36 @@ class PatchEmbed3D(layers.Layer):
 
 
 def _ifft_last_axis(re, im, n):
-    """1D inverse complex FFT over the last axis, via the conjugate
-    identity `ifft(X) = conj(fft(conj(X))) / N` - `keras.ops` only
-    exposes a forward 1D `fft`, not `ifft`."""
     f_re, f_im = ops.fft((re, -im))
     return f_re / n, -f_im / n
 
 
 def rfft2_hw(x):
-    """2D real FFT over axes (1, 2) of a `(B, H, W, C)` tensor - matches
-    `torch.fft.rfft2(x, dim=(1, 2))`/`np.fft.rfft2(x, axes=(1, 2))`
-    exactly (rfft applied to the last-listed axis W, complex fft to H),
-    decomposed into the 1D `ops.rfft`/`ops.fft` primitives `keras.ops`
-    actually provides (no native `rfft2`). Returns `(real, imag)`, each
-    `(B, H, W//2+1, C)`."""
-    x_p = ops.transpose(x, (0, 3, 1, 2))  # (B, C, H, W)
-    re, im = ops.rfft(x_p)  # rfft over W (last axis) -> (B, C, H, W//2+1)
-    re_t = ops.transpose(re, (0, 1, 3, 2))  # (B, C, W//2+1, H)
+    x_p = ops.transpose(x, (0, 3, 1, 2))
+    re, im = ops.rfft(x_p)
+    re_t = ops.transpose(re, (0, 1, 3, 2))
     im_t = ops.transpose(im, (0, 1, 3, 2))
-    re2, im2 = ops.fft((re_t, im_t))  # complex fft over H (now last axis)
-    re2 = ops.transpose(re2, (0, 1, 3, 2))  # (B, C, H, W//2+1)
+    re2, im2 = ops.fft((re_t, im_t))
+    re2 = ops.transpose(re2, (0, 1, 3, 2))
     im2 = ops.transpose(im2, (0, 1, 3, 2))
-    re2 = ops.transpose(re2, (0, 2, 3, 1))  # (B, H, W//2+1, C)
+    re2 = ops.transpose(re2, (0, 2, 3, 1))
     im2 = ops.transpose(im2, (0, 2, 3, 1))
     return re2, im2
 
 
 def irfft2_hw(re, im, H, W):
-    """Inverse of `rfft2_hw`: `(real, imag)` each `(B, H, W//2+1, C)` ->
-    real `(B, H, W, C)`."""
-    re_p = ops.transpose(re, (0, 3, 1, 2))  # (B, C, H, W//2+1)
+    re_p = ops.transpose(re, (0, 3, 1, 2))
     im_p = ops.transpose(im, (0, 3, 1, 2))
-    re_t = ops.transpose(re_p, (0, 1, 3, 2))  # (B, C, W//2+1, H)
+    re_t = ops.transpose(re_p, (0, 1, 3, 2))
     im_t = ops.transpose(im_p, (0, 1, 3, 2))
-    re1, im1 = _ifft_last_axis(re_t, im_t, H)  # inverse fft over H
-    re1 = ops.transpose(re1, (0, 1, 3, 2))  # (B, C, H, W//2+1)
+    re1, im1 = _ifft_last_axis(re_t, im_t, H)
+    re1 = ops.transpose(re1, (0, 1, 3, 2))
     im1 = ops.transpose(im1, (0, 1, 3, 2))
-    out = ops.irfft((re1, im1), fft_length=W)  # inverse rfft over W -> real
-    return ops.transpose(out, (0, 2, 3, 1))  # (B, H, W, C)
+    out = ops.irfft((re1, im1), fft_length=W)
+    return ops.transpose(out, (0, 2, 3, 1))
 
 
 def unpatchify_2d(x, grid_h, grid_w, patch_size, out_channels, name="unpatchify"):
-    """Inverse of a non-overlapping 2D patchify: `(B, grid_h, grid_w,
-    patch_size*patch_size*out_channels)` -> `(B, grid_h*patch_size,
-    grid_w*patch_size, out_channels)`. Used by AFNO-based models
-    (`keras_climate.operators.afno`, `keras_climate.weather.fourcastnet`)
-    to map per-patch predictions back to full-resolution pixels."""
     out_h, out_w = grid_h * patch_size, grid_w * patch_size
 
     def _unpatchify(t):
@@ -400,7 +342,6 @@ def unpatchify_2d(x, grid_h, grid_w, patch_size, out_channels, name="unpatchify"
 
 
 def sincos_position_embedding(length, dim):
-    """Fixed (non-learned) 1D sin-cos positional embedding, numpy, shape (length, dim)."""
     position = np.arange(length)[:, None]
     div_term = np.exp(np.arange(0, dim, 2) * -(math.log(10000.0) / dim))
     pe = np.zeros((length, dim), dtype=np.float32)
@@ -410,11 +351,10 @@ def sincos_position_embedding(length, dim):
 
 
 def sincos_position_embedding_2d(h, w, dim):
-    """Fixed 2D sin-cos positional embedding (ViT-MAE style), shape (h*w, dim)."""
     assert dim % 2 == 0
     grid_h = np.arange(h, dtype=np.float32)
     grid_w = np.arange(w, dtype=np.float32)
-    grid = np.meshgrid(grid_w, grid_h)  # w goes first
+    grid = np.meshgrid(grid_w, grid_h)
     grid = np.stack(grid, axis=0).reshape(2, 1, h, w)
 
     def embed_1d(pos, d):
@@ -428,10 +368,6 @@ def sincos_position_embedding_2d(h, w, dim):
     emb_w = embed_1d(grid[1], dim // 2)
     return np.concatenate([emb_h, emb_w], axis=1)
 
-
-# --------------------------------------------------------------------------
-# Conv building blocks (remote sensing / weather CNNs)
-# --------------------------------------------------------------------------
 
 class ConvBNAct(layers.Layer):
     def __init__(self, filters, kernel_size=3, strides=1, dilation_rate=1,
@@ -456,10 +392,6 @@ class ConvBNAct(layers.Layer):
             conv_padding = "same"
         self.conv = layers.Conv2D(filters, kernel_size, strides=strides, padding=conv_padding,
                                    dilation_rate=dilation_rate, use_bias=not use_bn, name="conv")
-        # epsilon=1e-5 matches PyTorch's `nn.BatchNorm2d` default (Keras's
-        # own default is 1e-3), which matters for numerically-faithful
-        # weight porting from the PyTorch reference implementations this
-        # layer is meant to receive checkpoints from.
         self.bn = layers.BatchNormalization(epsilon=1e-5, name="bn") if use_bn else None
         self.act = layers.Activation(act) if act else None
 
@@ -475,7 +407,6 @@ class ConvBNAct(layers.Layer):
 
 
 class DoubleConv(layers.Layer):
-    """Two 3x3 conv-bn-relu blocks, the basic UNet unit."""
 
     def __init__(self, filters, **kwargs):
         super().__init__(**kwargs)
@@ -489,7 +420,6 @@ class DoubleConv(layers.Layer):
 
 
 class ASPP(layers.Layer):
-    """Atrous Spatial Pyramid Pooling head, as used in DeepLabV3(+)."""
 
     def __init__(self, filters=256, rates=(6, 12, 18), **kwargs):
         super().__init__(**kwargs)

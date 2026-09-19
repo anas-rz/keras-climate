@@ -1,19 +1,3 @@
-"""
-Mapping for `keras_climate.operators.fno.FNO2D`, assuming a source
-checkpoint using this repo's own naming (no verifiable real checkpoint
-exists for this exact architecture - see `fno.py`'s module docstring):
-
-    fc0.{weight,bias}
-    blocks.{i}.spectral.{weights1_re,weights1_im,weights2_re,weights2_im}
-    blocks.{i}.pointwise.{weight,bias}
-    fc1.{weight,bias} / fc2.{weight,bias}
-
-`SpectralConv2D`'s weights are raw parameter tensors (real/imaginary
-parts split, since neither framework's checkpoint format transports a
-native complex dtype through this repo's numpy-based `WeightConverter`)
-with identical shape on both sides - no transpose needed.
-"""
-
 import re
 
 

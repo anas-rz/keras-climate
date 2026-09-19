@@ -1,42 +1,9 @@
-"""
-Mapping for `keras_climate.remote_sensing.segformer.SegFormer`, assuming a
-source checkpoint using the official NVlabs/SegFormer (`mmseg`-style)
-naming convention:
-
-    patch_embed{s}.proj.{weight,bias}          s in 1..4
-    patch_embed{s}.norm.{weight,bias}
-    block{s}.{i}.norm1.{weight,bias}
-    block{s}.{i}.attn.q.{weight,bias}
-    block{s}.{i}.attn.kv.{weight,bias}
-    block{s}.{i}.attn.sr.{weight,bias}         only when sr_ratio > 1
-    block{s}.{i}.attn.norm.{weight,bias}       only when sr_ratio > 1
-    block{s}.{i}.attn.proj.{weight,bias}
-    block{s}.{i}.norm2.{weight,bias}
-    block{s}.{i}.mlp.fc1.{weight,bias}
-    block{s}.{i}.mlp.dwconv.dwconv.{weight,bias}
-    block{s}.{i}.mlp.fc2.{weight,bias}
-    norm{s}.{weight,bias}
-    decode_head.linear_c{4,3,2,1}.proj.{weight,bias}
-    decode_head.linear_fuse.conv.weight
-    decode_head.linear_fuse.bn.{weight,bias,running_mean,running_var}
-    decode_head.linear_pred.{weight,bias}
-
-onto `SegFormer(variant=..., name="segformer")`'s weight paths
-(`segformer_backbone_stage{s}/...`, `segformer_decode_head_.../...`).
-
-The Mix-FFN's depthwise conv needs an explicit `param_kind="depthwise_kernel"`
-override (`build_segformer_param_kind_map`) since its PyTorch shape
-`(dim, 1, 3, 3)` is not enough on its own to distinguish it from a regular
-Conv2D kernel by shape alone.
-"""
-
 import re
 
 import numpy as np
 
 
 def build_segformer_mapper(cfg, keras_name="segformer", decode_head_prefix="decode_head"):
-    """torch_key -> keras_key mapper for one `MIT_CONFIGS[...]` variant."""
     rules = []
 
     for s in range(1, 5):
@@ -106,21 +73,6 @@ def build_segformer_mapper(cfg, keras_name="segformer", decode_head_prefix="deco
 
 
 def convert_hf_segformer_state_dict(hf_state_dict, cfg):
-    """Translates a HuggingFace `transformers.SegformerForSemanticSegmentation`
-    state_dict (e.g. `nvidia/segformer-b0-finetuned-ade-512-512`) into the
-    official NVlabs naming that `build_segformer_mapper` expects, so the
-    same mapper/converter works for both source formats.
-
-    HF's naming differs from the official repo in two ways that matter
-    here: (1) every submodule is renamed (`segformer.stages.{s}.
-    patch_embeddings...` / `attention.q_proj/k_proj/v_proj/o_proj...` /
-    `decode_head.linear_projections.{i}...` / `decode_head.batch_norm...`
-    / `decode_head.classifier...`), and (2) HF splits the fused `kv`
-    projection into two separate `k_proj`/`v_proj` Linears - those have to
-    be concatenated back into one `(2*dim, dim)` tensor since this repo's
-    `SpatialReductionAttention` (matching the official architecture) uses
-    a single fused `kv` Dense.
-    """
     out = {}
     depths = cfg["depths"]
 
@@ -182,10 +134,6 @@ def convert_hf_segformer_state_dict(hf_state_dict, cfg):
 
 
 def build_segformer_param_kind_map(cfg, keras_name="segformer"):
-    """`keras_weight_name -> "depthwise_kernel"` overrides for every Mix-FFN
-    depthwise conv kernel in the given `MIT_CONFIGS[...]` variant - required
-    because a PyTorch depthwise kernel's shape `(dim, 1, 3, 3)` alone isn't
-    enough for `infer_transpose` to distinguish it from a regular conv."""
     out = {}
     for s in range(1, 5):
         depth = cfg["depths"][s - 1]
