@@ -45,9 +45,6 @@ from keras_climate.weights.mappings.climax_mapping import build_climax_mapper
 from keras_climate.weights.mappings.pangu_weather_mapping import (
     build_pangu_weather_mapper, convert_pangu_weather_state_dict,
 )
-from keras_climate.weights.mappings.fno_mapping import build_fno_mapper
-from keras_climate.weights.mappings.uno_mapping import build_uno_mapper
-from keras_climate.weights.mappings.deeponet_mapping import build_deeponet_mapper
 
 __all__ = [
     "build_vit_mapper", "build_unet_mapper",
@@ -76,7 +73,4 @@ __all__ = [
     "build_fourcastnet_mapper", "convert_fourcastnet_state_dict", "load_fourcastnet_checkpoint",
     "build_climax_mapper",
     "build_pangu_weather_mapper", "convert_pangu_weather_state_dict",
-    "build_fno_mapper",
-    "build_uno_mapper",
-    "build_deeponet_mapper",
 ]

@@ -45,17 +45,6 @@ that matches it exactly.
 - **AFNO** — the only released AFNO weights are FourCastNet's own (already
   covered by `fourcastnet_backbone`); no standalone, task-agnostic AFNO
   checkpoint exists.
-- **FNO** — a real checkpoint exists (`pdebench-fno-audit/fno-weights`),
-  but its state_dict reveals a modified block structure that doesn't match
-  the original paper's code, PDEBench's own repo, or any indexed version of
-  `neuraloperator` — its exact combination formula is unverifiable from any
-  public source.
-- **DeepONet** — a real checkpoint exists (`BGLab/DeepONet-FlowBench-FPO`),
-  but its branch net is preceded by a custom multi-scale Inception-style
-  CNN feature extractor whose exact wiring can't be determined from tensor
-  shapes/names alone.
-- **UNO** — no checkpoint exists anywhere (neither the paper's code nor
-  `neuraloperator` ships one).
 - **Clay** — the official checkpoint is ~5GB, impractical to fetch/validate
   in most environments; still validated against a synthetic reference
   matching the assumed mapping naming, just not the real public checkpoint.

@@ -153,5 +153,5 @@ reveals a computation graph that can't be reconstructed from tensor
 names/shapes alone without the original source code, so porting it would
 risk silently assigning real weights into the wrong graph. See
 [Pretrained Weights](pretrained-weights.md#no-loader-available) for the
-full list (FNO, DeepONet, RingMo, Clay, this repo's own `AnySatEncoder`,
-Autoformer, Informer, N-BEATS, DLinear, Earthformer, MetNet).
+full list (RingMo, Clay, this repo's own `AnySatEncoder`, Autoformer,
+Informer, N-BEATS, DLinear, Earthformer, MetNet).
