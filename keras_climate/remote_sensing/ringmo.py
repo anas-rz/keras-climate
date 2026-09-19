@@ -7,7 +7,9 @@ from keras_climate.utils.layers import ConvBNAct, MLP
 def window_partition(x, window_size):
     B = ops.shape(x)[0]
     H, W, C = x.shape[1], x.shape[2], x.shape[3]
-    x = ops.reshape(x, (B, H // window_size, window_size, W // window_size, window_size, C))
+    x = ops.reshape(
+        x, (B, H // window_size, window_size, W // window_size, window_size, C)
+    )
     x = ops.transpose(x, (0, 1, 3, 2, 4, 5))
     return ops.reshape(x, (-1, window_size, window_size, C))
 
@@ -37,10 +39,12 @@ class WindowAttention(layers.Layer):
         self.window_size = window_size
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
         self.qkv_bias = qkv_bias
 
-        coords = np.stack(np.meshgrid(np.arange(window_size), np.arange(window_size), indexing="ij"))
+        coords = np.stack(
+            np.meshgrid(np.arange(window_size), np.arange(window_size), indexing="ij")
+        )
         coords_flat = coords.reshape(2, -1)
         rel_coords = coords_flat[:, :, None] - coords_flat[:, None, :]
         rel_coords = rel_coords.transpose(1, 2, 0)
@@ -52,12 +56,18 @@ class WindowAttention(layers.Layer):
     def build(self, input_shape):
         num_rel = (2 * self.window_size - 1) ** 2
         self.relative_position_bias_table = self.add_weight(
-            shape=(num_rel, self.num_heads), initializer="zeros",
-            trainable=True, name="relative_position_bias_table")
+            shape=(num_rel, self.num_heads),
+            initializer="zeros",
+            trainable=True,
+            name="relative_position_bias_table",
+        )
         self.rel_pos_index = self.add_weight(
-            shape=self._rel_pos_index_np.shape, dtype="int32",
+            shape=self._rel_pos_index_np.shape,
+            dtype="int32",
             initializer=keras.initializers.Constant(self._rel_pos_index_np),
-            trainable=False, name="rel_pos_index")
+            trainable=False,
+            name="rel_pos_index",
+        )
         self.qkv = layers.Dense(self.dim * 3, use_bias=self.qkv_bias, name="qkv")
         self.proj = layers.Dense(self.dim, name="proj")
         super().build(input_shape)
@@ -91,8 +101,17 @@ class WindowAttention(layers.Layer):
 
 class SwinTransformerBlock(layers.Layer):
 
-    def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0,
-                 mlp_ratio=4.0, qkv_bias=True, **kwargs):
+    def __init__(
+        self,
+        dim,
+        input_resolution,
+        num_heads,
+        window_size=7,
+        shift_size=0,
+        mlp_ratio=4.0,
+        qkv_bias=True,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         H, W = input_resolution
         if min(H, W) <= window_size:
@@ -109,19 +128,27 @@ class SwinTransformerBlock(layers.Layer):
         self.mlp = MLP(int(dim * mlp_ratio), dim, name="mlp")
 
         self._attn_mask_np = (
-            self._build_attn_mask(H, W, window_size, shift_size) if shift_size > 0 else None
+            self._build_attn_mask(H, W, window_size, shift_size)
+            if shift_size > 0
+            else None
         )
 
     @staticmethod
     def _build_attn_mask(H, W, window_size, shift_size):
         img_mask = np.zeros((1, H, W, 1), dtype="float32")
-        slices = (slice(0, -window_size), slice(-window_size, -shift_size), slice(-shift_size, None))
+        slices = (
+            slice(0, -window_size),
+            slice(-window_size, -shift_size),
+            slice(-shift_size, None),
+        )
         cnt = 0
         for h in slices:
             for w in slices:
                 img_mask[:, h, w, :] = cnt
                 cnt += 1
-        m = img_mask.reshape(1, H // window_size, window_size, W // window_size, window_size, 1)
+        m = img_mask.reshape(
+            1, H // window_size, window_size, W // window_size, window_size, 1
+        )
         m = m.transpose(0, 1, 3, 2, 4, 5).reshape(-1, window_size * window_size)
         attn_mask = m[:, None, :] - m[:, :, None]
         return np.where(attn_mask != 0, -100.0, 0.0).astype("float32")
@@ -131,7 +158,9 @@ class SwinTransformerBlock(layers.Layer):
             self.attn_mask = self.add_weight(
                 shape=self._attn_mask_np.shape,
                 initializer=keras.initializers.Constant(self._attn_mask_np),
-                trainable=False, name="attn_mask")
+                trainable=False,
+                name="attn_mask",
+            )
         else:
             self.attn_mask = None
         super().build(input_shape)
@@ -174,7 +203,12 @@ class PatchMerging(layers.Layer):
         H, W = self.input_resolution
         B, C = ops.shape(x)[0], self.dim
         x = ops.reshape(x, (B, H, W, C))
-        x0, x1, x2, x3 = x[:, 0::2, 0::2, :], x[:, 1::2, 0::2, :], x[:, 0::2, 1::2, :], x[:, 1::2, 1::2, :]
+        x0, x1, x2, x3 = (
+            x[:, 0::2, 0::2, :],
+            x[:, 1::2, 0::2, :],
+            x[:, 0::2, 1::2, :],
+            x[:, 1::2, 1::2, :],
+        )
         x = ops.concatenate([x0, x1, x2, x3], axis=-1)
         x = ops.reshape(x, (B, (H // 2) * (W // 2), 4 * C))
         return self.reduction(self.norm(x))
@@ -182,16 +216,35 @@ class PatchMerging(layers.Layer):
 
 class SwinStage(layers.Layer):
 
-    def __init__(self, dim, input_resolution, depth, num_heads, window_size,
-                 mlp_ratio=4.0, downsample=False, **kwargs):
+    def __init__(
+        self,
+        dim,
+        input_resolution,
+        depth,
+        num_heads,
+        window_size,
+        mlp_ratio=4.0,
+        downsample=False,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.blocks = [
-            SwinTransformerBlock(dim, input_resolution, num_heads, window_size,
-                                  shift_size=0 if i % 2 == 0 else window_size // 2,
-                                  mlp_ratio=mlp_ratio, name=f"block{i}")
+            SwinTransformerBlock(
+                dim,
+                input_resolution,
+                num_heads,
+                window_size,
+                shift_size=0 if i % 2 == 0 else window_size // 2,
+                mlp_ratio=mlp_ratio,
+                name=f"block{i}",
+            )
             for i in range(depth)
         ]
-        self.downsample = PatchMerging(input_resolution, dim, name="downsample") if downsample else None
+        self.downsample = (
+            PatchMerging(input_resolution, dim, name="downsample")
+            if downsample
+            else None
+        )
 
     def call(self, x, training=False):
         for blk in self.blocks:
@@ -227,9 +280,17 @@ class RingMoPatchEmbed(layers.Layer):
 
 class RingMoEncoder(keras.Model):
 
-    def __init__(self, img_size=192, embed_dim=128, depths=(2, 2, 18, 2),
-                 num_heads=(4, 8, 16, 32), window_size=6, mlp_ratio=4.0,
-                 name="ringmo_encoder", **kwargs):
+    def __init__(
+        self,
+        img_size=192,
+        embed_dim=128,
+        depths=(2, 2, 18, 2),
+        num_heads=(4, 8, 16, 32),
+        window_size=6,
+        mlp_ratio=4.0,
+        name="ringmo_encoder",
+        **kwargs,
+    ):
         super().__init__(name=name, **kwargs)
         self.patch_embed = RingMoPatchEmbed(embed_dim, name="patch_embed")
         grid = img_size // 4
@@ -237,8 +298,18 @@ class RingMoEncoder(keras.Model):
         self.stages = []
         for i, (depth, heads) in enumerate(zip(depths, num_heads)):
             downsample = i < len(depths) - 1
-            self.stages.append(SwinStage(dim, (resolution, resolution), depth, heads, window_size,
-                                          mlp_ratio, downsample=downsample, name=f"stage{i}"))
+            self.stages.append(
+                SwinStage(
+                    dim,
+                    (resolution, resolution),
+                    depth,
+                    heads,
+                    window_size,
+                    mlp_ratio,
+                    downsample=downsample,
+                    name=f"stage{i}",
+                )
+            )
             if downsample:
                 dim *= 2
                 resolution //= 2
@@ -265,8 +336,12 @@ class PIMask(layers.Layer):
         B, H, W = ops.shape(x)[0], x.shape[1], x.shape[2]
         gh, gw = H // self.mask_patch_size, W // self.mask_patch_size
 
-        block_mask = ops.cast(keras.random.uniform((B, gh, gw)) < self.mask_ratio, "float32")
-        pixel_mask = ops.cast(keras.random.uniform((B, H, W)) < self.inside_ratio, "float32")
+        block_mask = ops.cast(
+            keras.random.uniform((B, gh, gw)) < self.mask_ratio, "float32"
+        )
+        pixel_mask = ops.cast(
+            keras.random.uniform((B, H, W)) < self.inside_ratio, "float32"
+        )
 
         block_mask_full = ops.repeat(block_mask, self.mask_patch_size, axis=1)
         block_mask_full = ops.repeat(block_mask_full, self.mask_patch_size, axis=2)
@@ -283,25 +358,48 @@ class SimMIMDecoder(layers.Layer):
         self.in_chans = in_chans
 
     def build(self, input_shape):
-        self.conv = layers.Conv2D(self.in_chans * self.encoder_stride ** 2, 1, name="conv")
+        self.conv = layers.Conv2D(
+            self.in_chans * self.encoder_stride**2, 1, name="conv"
+        )
         super().build(input_shape)
 
     def call(self, x):
         return pixel_shuffle(self.conv(x), self.encoder_stride)
 
 
-def RingMo(img_size=192, in_chans=3, embed_dim=128, depths=(2, 2, 18, 2),
-           num_heads=(4, 8, 16, 32), window_size=6, mlp_ratio=4.0,
-           mask_patch_size=32, mask_ratio=0.6, inside_ratio=0.6, name="ringmo"):
+def RingMo(
+    img_size=192,
+    in_chans=3,
+    embed_dim=128,
+    depths=(2, 2, 18, 2),
+    num_heads=(4, 8, 16, 32),
+    window_size=6,
+    mlp_ratio=4.0,
+    mask_patch_size=32,
+    mask_ratio=0.6,
+    inside_ratio=0.6,
+    name="ringmo",
+):
     inputs = keras.Input(shape=(img_size, img_size, in_chans), name="image")
-    masked, mask = PIMask(mask_patch_size, mask_ratio, inside_ratio, name="pi_mask")(inputs)
+    masked, mask = PIMask(mask_patch_size, mask_ratio, inside_ratio, name="pi_mask")(
+        inputs
+    )
 
-    encoder = RingMoEncoder(img_size, embed_dim, depths, num_heads, window_size, mlp_ratio,
-                             name=f"{name}_encoder")
+    encoder = RingMoEncoder(
+        img_size,
+        embed_dim,
+        depths,
+        num_heads,
+        window_size,
+        mlp_ratio,
+        name=f"{name}_encoder",
+    )
     tokens = encoder(masked)
 
-    feat = layers.Reshape((encoder.final_grid, encoder.final_grid, encoder.final_dim),
-                           name="reshape_to_grid")(tokens)
+    feat = layers.Reshape(
+        (encoder.final_grid, encoder.final_grid, encoder.final_dim),
+        name="reshape_to_grid",
+    )(tokens)
 
     encoder_stride = 4 * (2 ** (len(depths) - 1))
     pred = SimMIMDecoder(encoder_stride, in_chans, name=f"{name}_decoder")(feat)

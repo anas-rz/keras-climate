@@ -2,34 +2,82 @@ import keras
 from keras import layers, ops
 from keras_climate.utils.layers import OverlapPatchEmbed, SegformerBlock, ConvBNAct
 
-
 MIT_CONFIGS = {
-    "b0": dict(embed_dims=[32, 64, 160, 256], depths=[2, 2, 2, 2],
-               num_heads=[1, 2, 5, 8], sr_ratios=[8, 4, 2, 1], decoder_dim=256),
-    "b1": dict(embed_dims=[64, 128, 320, 512], depths=[2, 2, 2, 2],
-               num_heads=[1, 2, 5, 8], sr_ratios=[8, 4, 2, 1], decoder_dim=256),
-    "b2": dict(embed_dims=[64, 128, 320, 512], depths=[3, 4, 6, 3],
-               num_heads=[1, 2, 5, 8], sr_ratios=[8, 4, 2, 1], decoder_dim=768),
-    "b3": dict(embed_dims=[64, 128, 320, 512], depths=[3, 4, 18, 3],
-               num_heads=[1, 2, 5, 8], sr_ratios=[8, 4, 2, 1], decoder_dim=768),
-    "b4": dict(embed_dims=[64, 128, 320, 512], depths=[3, 8, 27, 3],
-               num_heads=[1, 2, 5, 8], sr_ratios=[8, 4, 2, 1], decoder_dim=768),
-    "b5": dict(embed_dims=[64, 128, 320, 512], depths=[3, 6, 40, 3],
-               num_heads=[1, 2, 5, 8], sr_ratios=[8, 4, 2, 1], decoder_dim=768),
+    "b0": dict(
+        embed_dims=[32, 64, 160, 256],
+        depths=[2, 2, 2, 2],
+        num_heads=[1, 2, 5, 8],
+        sr_ratios=[8, 4, 2, 1],
+        decoder_dim=256,
+    ),
+    "b1": dict(
+        embed_dims=[64, 128, 320, 512],
+        depths=[2, 2, 2, 2],
+        num_heads=[1, 2, 5, 8],
+        sr_ratios=[8, 4, 2, 1],
+        decoder_dim=256,
+    ),
+    "b2": dict(
+        embed_dims=[64, 128, 320, 512],
+        depths=[3, 4, 6, 3],
+        num_heads=[1, 2, 5, 8],
+        sr_ratios=[8, 4, 2, 1],
+        decoder_dim=768,
+    ),
+    "b3": dict(
+        embed_dims=[64, 128, 320, 512],
+        depths=[3, 4, 18, 3],
+        num_heads=[1, 2, 5, 8],
+        sr_ratios=[8, 4, 2, 1],
+        decoder_dim=768,
+    ),
+    "b4": dict(
+        embed_dims=[64, 128, 320, 512],
+        depths=[3, 8, 27, 3],
+        num_heads=[1, 2, 5, 8],
+        sr_ratios=[8, 4, 2, 1],
+        decoder_dim=768,
+    ),
+    "b5": dict(
+        embed_dims=[64, 128, 320, 512],
+        depths=[3, 6, 40, 3],
+        num_heads=[1, 2, 5, 8],
+        sr_ratios=[8, 4, 2, 1],
+        decoder_dim=768,
+    ),
 }
 
 
 class MiTStage(layers.Layer):
 
-    def __init__(self, patch_size, stride, embed_dim, num_heads, depth, sr_ratio,
-                 mlp_ratio=4.0, drop_path_rates=None, name="mit_stage", **kwargs):
+    def __init__(
+        self,
+        patch_size,
+        stride,
+        embed_dim,
+        num_heads,
+        depth,
+        sr_ratio,
+        mlp_ratio=4.0,
+        drop_path_rates=None,
+        name="mit_stage",
+        **kwargs,
+    ):
         super().__init__(name=name, **kwargs)
         self.embed_dim = embed_dim
         drop_path_rates = drop_path_rates or [0.0] * depth
-        self.patch_embed = OverlapPatchEmbed(patch_size, stride, embed_dim, name="patch_embed")
+        self.patch_embed = OverlapPatchEmbed(
+            patch_size, stride, embed_dim, name="patch_embed"
+        )
         self.blocks = [
-            SegformerBlock(embed_dim, num_heads, mlp_ratio=mlp_ratio, sr_ratio=sr_ratio,
-                            drop_path=drop_path_rates[d], name=f"block{d}")
+            SegformerBlock(
+                embed_dim,
+                num_heads,
+                mlp_ratio=mlp_ratio,
+                sr_ratio=sr_ratio,
+                drop_path=drop_path_rates[d],
+                name=f"block{d}",
+            )
             for d in range(depth)
         ]
         self.norm = layers.LayerNormalization(epsilon=1e-6, name="norm")
@@ -53,13 +101,18 @@ def mit_encoder(x, cfg, drop_path_rate=0.1, name="mit"):
     features = []
     for stage in range(4):
         depth = cfg["depths"][stage]
-        stage_dpr = dpr[block_idx:block_idx + depth]
+        stage_dpr = dpr[block_idx : block_idx + depth]
         block_idx += depth
 
         x = MiTStage(
-            patch_sizes[stage], strides[stage], cfg["embed_dims"][stage],
-            cfg["num_heads"][stage], depth, cfg["sr_ratios"][stage],
-            mlp_ratio=4.0, drop_path_rates=stage_dpr,
+            patch_sizes[stage],
+            strides[stage],
+            cfg["embed_dims"][stage],
+            cfg["num_heads"][stage],
+            depth,
+            cfg["sr_ratios"][stage],
+            mlp_ratio=4.0,
+            drop_path_rates=stage_dpr,
             name=f"{name}_stage{stage+1}",
         )(x)
         features.append(x)
@@ -67,7 +120,9 @@ def mit_encoder(x, cfg, drop_path_rate=0.1, name="mit"):
     return features
 
 
-def segformer_decode_head(features, decoder_dim, num_classes, target_hw, name="decode_head"):
+def segformer_decode_head(
+    features, decoder_dim, num_classes, target_hw, name="decode_head"
+):
     h4, w4 = ops.shape(features[0])[1], ops.shape(features[0])[2]
     projected = []
     for i, f in enumerate(features):
@@ -100,9 +155,13 @@ def SegFormer(
     inputs = keras.Input(shape=input_shape, name="image")
 
     features = mit_encoder(inputs, cfg, name=f"{name}_backbone")
-    x = segformer_decode_head(features, cfg["decoder_dim"], num_classes,
-                               target_hw=(input_shape[0], input_shape[1]),
-                               name=f"{name}_decode_head")
+    x = segformer_decode_head(
+        features,
+        cfg["decoder_dim"],
+        num_classes,
+        target_hw=(input_shape[0], input_shape[1]),
+        name=f"{name}_decode_head",
+    )
 
     if final_activation:
         x = layers.Activation(final_activation, name="logits_act")(x)

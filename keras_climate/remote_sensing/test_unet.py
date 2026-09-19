@@ -25,8 +25,13 @@ def test_custom_depth_and_odd_number_of_classes():
 
 
 def test_final_activation_applied():
-    model = UNet(input_shape=(32, 32, 3), num_classes=1, depth=2, base_filters=8,
-                 final_activation="sigmoid")
+    model = UNet(
+        input_shape=(32, 32, 3),
+        num_classes=1,
+        depth=2,
+        base_filters=8,
+        final_activation="sigmoid",
+    )
     x = np.random.randn(1, 32, 32, 3).astype("float32")
     y = keras.ops.convert_to_numpy(model(x))
     assert y.min() >= 0.0 and y.max() <= 1.0
@@ -54,7 +59,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     class Down(nn.Module):
         def __init__(self, in_ch, out_ch):
             super().__init__()
-            self.maxpool_conv = nn.Sequential(nn.MaxPool2d(2), DoubleConv(in_ch, out_ch))
+            self.maxpool_conv = nn.Sequential(
+                nn.MaxPool2d(2), DoubleConv(in_ch, out_ch)
+            )
 
         def forward(self, x):
             return self.maxpool_conv(x)
@@ -116,14 +123,19 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
                 m.running_mean.normal_(0.0, 0.1)
                 m.running_var.uniform_(0.5, 1.5)
 
-    state_dict = {k: v.detach().numpy() for k, v in torch_model.state_dict().items()
-                  if "num_batches_tracked" not in k}
+    state_dict = {
+        k: v.detach().numpy()
+        for k, v in torch_model.state_dict().items()
+        if "num_batches_tracked" not in k
+    }
 
     keras_model = UNet(input_shape=(64, 64, 3), num_classes=2, base_filters=64, depth=4)
     keras_model(np.zeros((1, 64, 64, 3), dtype="float32"))
 
     mapper = build_unet_mapper(depth=4)
-    report = WeightConverter(keras_model, state_dict, mapper).convert(strict=True, verbose=False)
+    report = WeightConverter(keras_model, state_dict, mapper).convert(
+        strict=True, verbose=False
+    )
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
@@ -136,7 +148,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_out = np.transpose(keras_out, (0, 3, 1, 2))
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-3, f"UNet weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-3
+    ), f"UNet weight port numerical mismatch: max abs diff {max_diff}"
 
 
 @pytest.mark.pretrained

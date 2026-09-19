@@ -58,9 +58,11 @@ def test_weight_port_roundtrip_matches_pytorch_reference(individual):
             self.num_channels = num_channels
             if individual:
                 self.Linear_Seasonal = nn.ModuleList(
-                    [nn.Linear(seq_len, pred_len) for _ in range(num_channels)])
+                    [nn.Linear(seq_len, pred_len) for _ in range(num_channels)]
+                )
                 self.Linear_Trend = nn.ModuleList(
-                    [nn.Linear(seq_len, pred_len) for _ in range(num_channels)])
+                    [nn.Linear(seq_len, pred_len) for _ in range(num_channels)]
+                )
             else:
                 self.Linear_Seasonal = nn.Linear(seq_len, pred_len)
                 self.Linear_Trend = nn.Linear(seq_len, pred_len)
@@ -69,10 +71,20 @@ def test_weight_port_roundtrip_matches_pytorch_reference(individual):
             seasonal, trend = self.decomp(x)
             seasonal, trend = seasonal.permute(0, 2, 1), trend.permute(0, 2, 1)
             if self.individual:
-                s_out = torch.stack([self.Linear_Seasonal[c](seasonal[:, c, :])
-                                      for c in range(self.num_channels)], dim=1)
-                t_out = torch.stack([self.Linear_Trend[c](trend[:, c, :])
-                                      for c in range(self.num_channels)], dim=1)
+                s_out = torch.stack(
+                    [
+                        self.Linear_Seasonal[c](seasonal[:, c, :])
+                        for c in range(self.num_channels)
+                    ],
+                    dim=1,
+                )
+                t_out = torch.stack(
+                    [
+                        self.Linear_Trend[c](trend[:, c, :])
+                        for c in range(self.num_channels)
+                    ],
+                    dim=1,
+                )
             else:
                 s_out = self.Linear_Seasonal(seasonal)
                 t_out = self.Linear_Trend(trend)
@@ -89,11 +101,18 @@ def test_weight_port_roundtrip_matches_pytorch_reference(individual):
 
     state_dict = {k: v.detach().numpy() for k, v in torch_model.state_dict().items()}
 
-    keras_model = DLinear(seq_len=seq_len, pred_len=pred_len, num_channels=num_channels,
-                           kernel_size=kernel_size, individual=individual)
+    keras_model = DLinear(
+        seq_len=seq_len,
+        pred_len=pred_len,
+        num_channels=num_channels,
+        kernel_size=kernel_size,
+        individual=individual,
+    )
 
     mapper = build_dlinear_mapper(num_channels=num_channels, individual=individual)
-    report = WeightConverter(keras_model, state_dict, mapper).convert(strict=True, verbose=False)
+    report = WeightConverter(keras_model, state_dict, mapper).convert(
+        strict=True, verbose=False
+    )
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
@@ -104,4 +123,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference(individual):
     keras_out = keras.ops.convert_to_numpy(keras_model(x_np, training=False))
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-2, f"DLinear weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-2
+    ), f"DLinear weight port numerical mismatch: max abs diff {max_diff}"

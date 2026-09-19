@@ -4,7 +4,11 @@ import re
 def convert_pangu_weather_state_dict(flat_state_dict):
     out = {}
     for k, v in flat_state_dict.items():
-        if k.endswith((".conv.weight", ".conv_surface.weight")) and v.ndim == 3 and v.shape[-1] == 1:
+        if (
+            k.endswith((".conv.weight", ".conv_surface.weight"))
+            and v.ndim == 3
+            and v.shape[-1] == 1
+        ):
             v = v[:, :, 0]
         out[k] = v
     return out
@@ -22,7 +26,10 @@ def _block_rules(i, j):
         (rf"^{prefix}\.linear\.linear1\.bias$", f"{kp}/linear/linear1/bias"),
         (rf"^{prefix}\.linear\.linear2\.weight$", f"{kp}/linear/linear2/kernel"),
         (rf"^{prefix}\.linear\.linear2\.bias$", f"{kp}/linear/linear2/bias"),
-        (rf"^{prefix}\.attention\.earth_specific_bias$", f"{kp}/attention/earth_specific_bias"),
+        (
+            rf"^{prefix}\.attention\.earth_specific_bias$",
+            f"{kp}/attention/earth_specific_bias",
+        ),
         (rf"^{prefix}\.attention\.linear1\.weight$", f"{kp}/attention/linear1/kernel"),
         (rf"^{prefix}\.attention\.linear1\.bias$", f"{kp}/attention/linear1/bias"),
         (rf"^{prefix}\.attention\.linear2\.weight$", f"{kp}/attention/linear2/kernel"),

@@ -36,7 +36,10 @@ def build_climax_mapper(num_vars, depth, decoder_depth):
     ]
     for v in range(num_vars):
         rules += [
-            (rf"^token_embeds\.{v}\.proj\.weight$", f"token_embeds/token_embeds{v}/kernel"),
+            (
+                rf"^token_embeds\.{v}\.proj\.weight$",
+                f"token_embeds/token_embeds{v}/kernel",
+            ),
             (rf"^token_embeds\.{v}\.proj\.bias$", f"token_embeds/token_embeds{v}/bias"),
         ]
     for i in range(depth):

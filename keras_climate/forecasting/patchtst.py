@@ -34,7 +34,7 @@ class RevIN(layers.Layer):
 
     def _denormalize(self, x):
         if self.affine:
-            x = (x - self.beta) / (self.gamma + self.eps ** 2)
+            x = (x - self.beta) / (self.gamma + self.eps**2)
         return x * self.std + self.mean
 
 
@@ -47,7 +47,10 @@ class LearnedPositionalEmbedding(layers.Layer):
 
     def build(self, input_shape):
         self.embeddings = self.add_weight(
-            shape=(self.num_patches, self.d_model), initializer="zeros", name="embeddings")
+            shape=(self.num_patches, self.d_model),
+            initializer="zeros",
+            name="embeddings",
+        )
         super().build(input_shape)
 
     def call(self, x):
@@ -65,8 +68,10 @@ class PatchifyTS(layers.Layer):
     def call(self, x):
         B, C = ops.shape(x)[0], x.shape[-1]
         x = ops.transpose(x, (0, 2, 1))
-        idx = (ops.arange(self.patch_len)[None, :]
-               + self.stride * ops.arange(self.num_patches)[:, None])
+        idx = (
+            ops.arange(self.patch_len)[None, :]
+            + self.stride * ops.arange(self.num_patches)[:, None]
+        )
         patches = ops.take(x, idx, axis=2)
         patches = ops.reshape(patches, (B * C, self.num_patches, self.patch_len))
         return patches
@@ -98,7 +103,9 @@ def PatchTST(
     if padding_patch == "end":
         padded_seq_len += stride
         x = layers.Lambda(
-            lambda t: ops.concatenate([t, ops.repeat(t[:, -1:, :], stride, axis=1)], axis=1),
+            lambda t: ops.concatenate(
+                [t, ops.repeat(t[:, -1:, :], stride, axis=1)], axis=1
+            ),
             name="replication_pad",
         )(x)
 
@@ -110,15 +117,18 @@ def PatchTST(
     tokens = layers.Dropout(dropout)(tokens)
 
     for i in range(depth):
-        tokens = TransformerEncoderBlock(d_model, num_heads, mlp_ratio, drop=dropout,
-                                          name=f"encoder_block{i}")(tokens)
+        tokens = TransformerEncoderBlock(
+            d_model, num_heads, mlp_ratio, drop=dropout, name=f"encoder_block{i}"
+        )(tokens)
     tokens = layers.LayerNormalization(epsilon=1e-6, name="encoder_norm")(tokens)
 
     flat = layers.Reshape((num_patches * d_model,), name="flatten")(tokens)
     head = layers.Dense(pred_len, name="forecast_head")(flat)
 
     out = layers.Lambda(
-        lambda t: ops.transpose(ops.reshape(t, (-1, num_channels, pred_len)), (0, 2, 1)),
+        lambda t: ops.transpose(
+            ops.reshape(t, (-1, num_channels, pred_len)), (0, 2, 1)
+        ),
         name="reshape_output",
     )(head)
 

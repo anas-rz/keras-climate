@@ -3,15 +3,28 @@ import pytest
 import keras
 
 from keras_climate.remote_sensing.ringmo import (
-    RingMo, RingMoEncoder, SimMIMDecoder, PIMask, window_partition, window_reverse,
+    RingMo,
+    RingMoEncoder,
+    SimMIMDecoder,
+    PIMask,
+    window_partition,
+    window_reverse,
 )
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_ringmo_mapper
 
 
 def test_builds_and_runs():
-    model = RingMo(img_size=48, in_chans=3, embed_dim=16, depths=(2, 2, 2),
-                    num_heads=(2, 4, 8), window_size=3, mlp_ratio=2.0, mask_patch_size=16)
+    model = RingMo(
+        img_size=48,
+        in_chans=3,
+        embed_dim=16,
+        depths=(2, 2, 2),
+        num_heads=(2, 4, 8),
+        window_size=3,
+        mlp_ratio=2.0,
+        mask_patch_size=16,
+    )
     x = np.random.randn(2, 48, 48, 3).astype("float32")
     pred, mask = model(x)
     assert tuple(pred.shape) == (2, 48, 48, 3)
@@ -19,8 +32,14 @@ def test_builds_and_runs():
 
 
 def test_encoder_alone_for_downstream_tasks():
-    encoder = RingMoEncoder(img_size=48, embed_dim=16, depths=(2, 2, 2),
-                             num_heads=(2, 4, 8), window_size=3, mlp_ratio=2.0)
+    encoder = RingMoEncoder(
+        img_size=48,
+        embed_dim=16,
+        depths=(2, 2, 2),
+        num_heads=(2, 4, 8),
+        window_size=3,
+        mlp_ratio=2.0,
+    )
     x = np.random.randn(2, 48, 48, 3).astype("float32")
     tokens = encoder(x)
     final_grid = 48 // 4 // 4
@@ -50,7 +69,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     def window_partition_np(x, window_size):
         B, H, W, C = x.shape
-        x = x.reshape(B, H // window_size, window_size, W // window_size, window_size, C)
+        x = x.reshape(
+            B, H // window_size, window_size, W // window_size, window_size, C
+        )
         x = x.permute(0, 1, 3, 2, 4, 5)
         return x.reshape(-1, window_size, window_size, C)
 
@@ -68,34 +89,50 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.window_size = window_size
             self.num_heads = num_heads
             self.head_dim = dim // num_heads
-            self.scale = self.head_dim ** -0.5
+            self.scale = self.head_dim**-0.5
             self.qkv = nn.Linear(dim, dim * 3, bias=True)
             self.proj = nn.Linear(dim, dim)
 
-            coords = np.stack(np.meshgrid(np.arange(window_size), np.arange(window_size), indexing="ij"))
+            coords = np.stack(
+                np.meshgrid(
+                    np.arange(window_size), np.arange(window_size), indexing="ij"
+                )
+            )
             coords_flat = coords.reshape(2, -1)
             rel = coords_flat[:, :, None] - coords_flat[:, None, :]
             rel = rel.transpose(1, 2, 0)
             rel[:, :, 0] += window_size - 1
             rel[:, :, 1] += window_size - 1
             rel[:, :, 0] *= 2 * window_size - 1
-            self.register_buffer("rel_pos_index", torch.from_numpy(rel.sum(-1).astype("int64")).reshape(-1))
+            self.register_buffer(
+                "rel_pos_index",
+                torch.from_numpy(rel.sum(-1).astype("int64")).reshape(-1),
+            )
             self.relative_position_bias_table = nn.Parameter(
-                torch.zeros((2 * window_size - 1) ** 2, num_heads))
+                torch.zeros((2 * window_size - 1) ** 2, num_heads)
+            )
 
         def forward(self, x, mask=None):
             B_, N, C = x.shape
-            qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            qkv = (
+                self.qkv(x)
+                .reshape(B_, N, 3, self.num_heads, self.head_dim)
+                .permute(2, 0, 3, 1, 4)
+            )
             q, k, v = qkv[0] * self.scale, qkv[1], qkv[2]
             attn = q @ k.transpose(-2, -1)
 
-            bias = self.relative_position_bias_table[self.rel_pos_index].reshape(N, N, self.num_heads)
+            bias = self.relative_position_bias_table[self.rel_pos_index].reshape(
+                N, N, self.num_heads
+            )
             bias = bias.permute(2, 0, 1)
             attn = attn + bias.unsqueeze(0)
 
             if mask is not None:
                 nw = mask.shape[0]
-                attn = attn.reshape(B_ // nw, nw, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
+                attn = attn.reshape(
+                    B_ // nw, nw, self.num_heads, N, N
+                ) + mask.unsqueeze(1).unsqueeze(0)
                 attn = attn.reshape(B_, self.num_heads, N, N)
 
             attn = attn.softmax(dim=-1)
@@ -112,7 +149,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return self.fc2(F.gelu(self.fc1(x)))
 
     class TorchSwinBlock(nn.Module):
-        def __init__(self, dim, input_resolution, num_heads, window_size, shift_size, mlp_ratio):
+        def __init__(
+            self, dim, input_resolution, num_heads, window_size, shift_size, mlp_ratio
+        ):
             super().__init__()
             H, W = input_resolution
             if min(H, W) <= window_size:
@@ -129,16 +168,24 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
             if shift_size > 0:
                 img_mask = np.zeros((1, H, W, 1), dtype="float32")
-                slices = (slice(0, -window_size), slice(-window_size, -shift_size), slice(-shift_size, None))
+                slices = (
+                    slice(0, -window_size),
+                    slice(-window_size, -shift_size),
+                    slice(-shift_size, None),
+                )
                 cnt = 0
                 for h in slices:
                     for w in slices:
                         img_mask[:, h, w, :] = cnt
                         cnt += 1
                 m = torch.from_numpy(img_mask)
-                mw = window_partition_np(m, window_size).reshape(-1, window_size * window_size)
+                mw = window_partition_np(m, window_size).reshape(
+                    -1, window_size * window_size
+                )
                 attn_mask = mw.unsqueeze(1) - mw.unsqueeze(2)
-                attn_mask = attn_mask.masked_fill(attn_mask != 0, -100.0).masked_fill(attn_mask == 0, 0.0)
+                attn_mask = attn_mask.masked_fill(attn_mask != 0, -100.0).masked_fill(
+                    attn_mask == 0, 0.0
+                )
                 self.register_buffer("attn_mask", attn_mask)
             else:
                 self.attn_mask = None
@@ -149,13 +196,19 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             shortcut = x
             x = self.norm1(x).reshape(B, H, W, C)
             if self.shift_size > 0:
-                x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
-            windows = window_partition_np(x, self.window_size).reshape(-1, self.window_size ** 2, C)
+                x = torch.roll(
+                    x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2)
+                )
+            windows = window_partition_np(x, self.window_size).reshape(
+                -1, self.window_size**2, C
+            )
             attn_out = self.attn(windows, mask=self.attn_mask)
             attn_out = attn_out.reshape(-1, self.window_size, self.window_size, C)
             x = window_reverse_np(attn_out, self.window_size, H, W)
             if self.shift_size > 0:
-                x = torch.roll(x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
+                x = torch.roll(
+                    x, shifts=(self.shift_size, self.shift_size), dims=(1, 2)
+                )
             x = x.reshape(B, H * W, C)
             x = shortcut + x
             x = x + self.mlp(self.norm2(x))
@@ -173,19 +226,45 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             H, W = self.input_resolution
             B, C = x.shape[0], self.dim
             x = x.reshape(B, H, W, C)
-            x0, x1, x2, x3 = x[:, 0::2, 0::2, :], x[:, 1::2, 0::2, :], x[:, 0::2, 1::2, :], x[:, 1::2, 1::2, :]
-            x = torch.cat([x0, x1, x2, x3], dim=-1).reshape(B, (H // 2) * (W // 2), 4 * C)
+            x0, x1, x2, x3 = (
+                x[:, 0::2, 0::2, :],
+                x[:, 1::2, 0::2, :],
+                x[:, 0::2, 1::2, :],
+                x[:, 1::2, 1::2, :],
+            )
+            x = torch.cat([x0, x1, x2, x3], dim=-1).reshape(
+                B, (H // 2) * (W // 2), 4 * C
+            )
             return self.reduction(self.norm(x))
 
     class TorchStage(nn.Module):
-        def __init__(self, dim, input_resolution, depth, num_heads, window_size, mlp_ratio, downsample):
+        def __init__(
+            self,
+            dim,
+            input_resolution,
+            depth,
+            num_heads,
+            window_size,
+            mlp_ratio,
+            downsample,
+        ):
             super().__init__()
-            self.blocks = nn.ModuleList([
-                TorchSwinBlock(dim, input_resolution, num_heads, window_size,
-                               0 if i % 2 == 0 else window_size // 2, mlp_ratio)
-                for i in range(depth)
-            ])
-            self.downsample = TorchPatchMerging(input_resolution, dim) if downsample else None
+            self.blocks = nn.ModuleList(
+                [
+                    TorchSwinBlock(
+                        dim,
+                        input_resolution,
+                        num_heads,
+                        window_size,
+                        0 if i % 2 == 0 else window_size // 2,
+                        mlp_ratio,
+                    )
+                    for i in range(depth)
+                ]
+            )
+            self.downsample = (
+                TorchPatchMerging(input_resolution, dim) if downsample else None
+            )
 
         def forward(self, x):
             for blk in self.blocks:
@@ -221,7 +300,16 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return self.norm(x), H, W
 
     class TorchRingMoEncoder(nn.Module):
-        def __init__(self, img_size, in_chans, embed_dim, depths, num_heads, window_size, mlp_ratio):
+        def __init__(
+            self,
+            img_size,
+            in_chans,
+            embed_dim,
+            depths,
+            num_heads,
+            window_size,
+            mlp_ratio,
+        ):
             super().__init__()
             self.patch_embed = TorchPatchEmbed(in_chans, embed_dim)
             grid = img_size // 4
@@ -229,7 +317,17 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             stages = []
             for i, (depth, heads) in enumerate(zip(depths, num_heads)):
                 downsample = i < len(depths) - 1
-                stages.append(TorchStage(dim, (res, res), depth, heads, window_size, mlp_ratio, downsample))
+                stages.append(
+                    TorchStage(
+                        dim,
+                        (res, res),
+                        depth,
+                        heads,
+                        window_size,
+                        mlp_ratio,
+                        downsample,
+                    )
+                )
                 if downsample:
                     dim *= 2
                     res //= 2
@@ -247,7 +345,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     class TorchSimMIMDecoder(nn.Module):
         def __init__(self, dim, encoder_stride, in_chans):
             super().__init__()
-            self.decoder = nn.Conv2d(dim, in_chans * encoder_stride ** 2, 1)
+            self.decoder = nn.Conv2d(dim, in_chans * encoder_stride**2, 1)
             self.encoder_stride = encoder_stride
 
         def forward(self, x):
@@ -255,12 +353,24 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return F.pixel_shuffle(x, self.encoder_stride)
 
     class TorchRingMoEncoderDecoder(nn.Module):
-        def __init__(self, img_size, in_chans, embed_dim, depths, num_heads, window_size, mlp_ratio):
+        def __init__(
+            self,
+            img_size,
+            in_chans,
+            embed_dim,
+            depths,
+            num_heads,
+            window_size,
+            mlp_ratio,
+        ):
             super().__init__()
-            self.encoder = TorchRingMoEncoder(img_size, in_chans, embed_dim, depths, num_heads,
-                                               window_size, mlp_ratio)
+            self.encoder = TorchRingMoEncoder(
+                img_size, in_chans, embed_dim, depths, num_heads, window_size, mlp_ratio
+            )
             encoder_stride = 4 * (2 ** (len(depths) - 1))
-            self.decoder = TorchSimMIMDecoder(self.encoder.final_dim, encoder_stride, in_chans)
+            self.decoder = TorchSimMIMDecoder(
+                self.encoder.final_dim, encoder_stride, in_chans
+            )
 
         def forward(self, x):
             tokens = self.encoder(x)
@@ -273,8 +383,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     img_size, in_chans, embed_dim = 48, 3, 16
     depths, num_heads, window_size, mlp_ratio = (2, 2, 2), (2, 4, 8), 3, 2.0
 
-    torch_model = TorchRingMoEncoderDecoder(img_size, in_chans, embed_dim, depths, num_heads,
-                                             window_size, mlp_ratio)
+    torch_model = TorchRingMoEncoderDecoder(
+        img_size, in_chans, embed_dim, depths, num_heads, window_size, mlp_ratio
+    )
     torch_model.eval()
     with torch.no_grad():
         for m in torch_model.modules():
@@ -294,23 +405,40 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         if "num_batches_tracked" in k or "rel_pos_index" in k or "attn_mask" in k:
             continue
         if k.startswith("encoder."):
-            state_dict[k[len("encoder."):]] = v.detach().numpy()
+            state_dict[k[len("encoder.") :]] = v.detach().numpy()
         elif k.startswith("decoder."):
-            state_dict[k[len("decoder."):]] = v.detach().numpy()
+            state_dict[k[len("decoder.") :]] = v.detach().numpy()
 
-    encoder = RingMoEncoder(img_size=img_size, embed_dim=embed_dim, depths=depths,
-                             num_heads=num_heads, window_size=window_size, mlp_ratio=mlp_ratio,
-                             name="ringmo_encoder")
+    encoder = RingMoEncoder(
+        img_size=img_size,
+        embed_dim=embed_dim,
+        depths=depths,
+        num_heads=num_heads,
+        window_size=window_size,
+        mlp_ratio=mlp_ratio,
+        name="ringmo_encoder",
+    )
     x0 = np.zeros((1, img_size, img_size, in_chans), dtype="float32")
     tok0 = encoder(x0)
-    decoder = SimMIMDecoder(4 * (2 ** (len(depths) - 1)), in_chans, name="ringmo_decoder")
-    feat0 = keras.layers.Reshape((encoder.final_grid, encoder.final_grid, encoder.final_dim))(tok0)
+    decoder = SimMIMDecoder(
+        4 * (2 ** (len(depths) - 1)), in_chans, name="ringmo_decoder"
+    )
+    feat0 = keras.layers.Reshape(
+        (encoder.final_grid, encoder.final_grid, encoder.final_dim)
+    )(tok0)
     decoder(feat0)
 
     mapper = build_ringmo_mapper(depths)
-    enc_report = WeightConverter(encoder, state_dict, mapper).convert(strict=False, verbose=False)
-    dec_report = WeightConverter(decoder, state_dict, mapper).convert(strict=False, verbose=False)
-    assert all(k.endswith(("rel_pos_index", "attn_mask")) for k in enc_report["missing_in_source"])
+    enc_report = WeightConverter(encoder, state_dict, mapper).convert(
+        strict=False, verbose=False
+    )
+    dec_report = WeightConverter(decoder, state_dict, mapper).convert(
+        strict=False, verbose=False
+    )
+    assert all(
+        k.endswith(("rel_pos_index", "attn_mask"))
+        for k in enc_report["missing_in_source"]
+    )
     assert not dec_report["missing_in_source"]
 
     x_np = np.random.randn(1, in_chans, img_size, img_size).astype("float32")
@@ -319,9 +447,13 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     keras_in = np.transpose(x_np, (0, 2, 3, 1))
     tokens = encoder(keras_in, training=False)
-    feat = keras.layers.Reshape((encoder.final_grid, encoder.final_grid, encoder.final_dim))(tokens)
+    feat = keras.layers.Reshape(
+        (encoder.final_grid, encoder.final_grid, encoder.final_dim)
+    )(tokens)
     keras_out = keras.ops.convert_to_numpy(decoder(feat))
     keras_out = np.transpose(keras_out, (0, 3, 1, 2))
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-2, f"RingMo weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-2
+    ), f"RingMo weight port numerical mismatch: max abs diff {max_diff}"

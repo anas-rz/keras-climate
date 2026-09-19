@@ -2,7 +2,11 @@ import numpy as np
 import pytest
 import keras
 
-from keras_climate.weather.earthformer import Earthformer, CuboidAttention, CuboidTransformerBlock
+from keras_climate.weather.earthformer import (
+    Earthformer,
+    CuboidAttention,
+    CuboidTransformerBlock,
+)
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_earthformer_mapper
 
@@ -18,16 +22,28 @@ def test_cuboid_partition_reassemble_is_exact_inverse(strategy):
 
 
 def test_builds_and_runs():
-    model = Earthformer(input_shape=(4, 32, 32, 1), pred_steps=4, base_dim=8,
-                         stage_depths=(1, 1), num_heads=2, cuboid_size=(2, 4, 4))
+    model = Earthformer(
+        input_shape=(4, 32, 32, 1),
+        pred_steps=4,
+        base_dim=8,
+        stage_depths=(1, 1),
+        num_heads=2,
+        cuboid_size=(2, 4, 4),
+    )
     x = np.random.randn(1, 4, 32, 32, 1).astype("float32")
     y = keras.ops.convert_to_numpy(model(x))
     assert y.shape == (1, 4, 32, 32, 1)
 
 
 def test_different_pred_steps_and_channels():
-    model = Earthformer(input_shape=(2, 16, 16, 2), pred_steps=6, base_dim=8,
-                         stage_depths=(1,), num_heads=2, cuboid_size=(2, 4, 4))
+    model = Earthformer(
+        input_shape=(2, 16, 16, 2),
+        pred_steps=6,
+        base_dim=8,
+        stage_depths=(1,),
+        num_heads=2,
+        cuboid_size=(2, 4, 4),
+    )
     x = np.random.randn(1, 2, 16, 16, 2).astype("float32")
     y = keras.ops.convert_to_numpy(model(x))
     assert y.shape == (1, 6, 16, 16, 2)
@@ -46,7 +62,16 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         else:
             x = x.reshape(B, ct, nt, ch, nh, cw, nw, C)
             x = x.permute(0, 2, 4, 6, 1, 3, 5, 7).contiguous()
-        return x.reshape(B * nt * nh * nw, ct * ch * cw, C), (B, nt, nh, nw, ct, ch, cw, C)
+        return x.reshape(B * nt * nh * nw, ct * ch * cw, C), (
+            B,
+            nt,
+            nh,
+            nw,
+            ct,
+            ch,
+            cw,
+            C,
+        )
 
     def reassemble(x, meta, strategy):
         B, nt, nh, nw, ct, ch, cw, C = meta
@@ -63,7 +88,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.dim = dim
             self.num_heads = num_heads
             self.head_dim = dim // num_heads
-            self.scale = self.head_dim ** -0.5
+            self.scale = self.head_dim**-0.5
             self.cuboid_size = cuboid_size
             self.strategy = strategy
             self.qkv = nn.Linear(dim, dim * 3)
@@ -74,7 +99,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             ct, ch, cw = self.cuboid_size
             cuboids, meta = partition(x, ct, ch, cw, self.strategy)
             N = cuboids.shape[1]
-            qkv = self.qkv(cuboids).reshape(cuboids.shape[0], N, 3, self.num_heads, self.head_dim)
+            qkv = self.qkv(cuboids).reshape(
+                cuboids.shape[0], N, 3, self.num_heads, self.head_dim
+            )
             qkv = qkv.permute(2, 0, 3, 1, 4)
             q, k, v = qkv[0], qkv[1], qkv[2]
             attn = (q @ k.transpose(-2, -1) * self.scale).softmax(dim=-1)
@@ -92,7 +119,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return self.fc2(torch.nn.functional.gelu(self.fc1(x)))
 
     class Block(nn.Module):
-        def __init__(self, dim, num_heads, cuboid_size, strategy="local", mlp_ratio=4.0):
+        def __init__(
+            self, dim, num_heads, cuboid_size, strategy="local", mlp_ratio=4.0
+        ):
             super().__init__()
             self.norm1 = nn.LayerNorm(dim, eps=1e-6)
             self.attn = Attn(dim, num_heads, cuboid_size, strategy)
@@ -107,10 +136,17 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     class Stage(nn.Module):
         def __init__(self, dim, num_heads, depth, cuboid_size):
             super().__init__()
-            self.blocks = nn.ModuleList([
-                Block(dim, num_heads, cuboid_size, strategy="local" if i % 2 == 0 else "dilated")
-                for i in range(depth)
-            ])
+            self.blocks = nn.ModuleList(
+                [
+                    Block(
+                        dim,
+                        num_heads,
+                        cuboid_size,
+                        strategy="local" if i % 2 == 0 else "dilated",
+                    )
+                    for i in range(depth)
+                ]
+            )
 
         def forward(self, x):
             for blk in self.blocks:
@@ -119,7 +155,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     class TorchEarthformer(nn.Module):
 
-        def __init__(self, T_in, H, W, C_in, pred_steps, base_dim, depth, num_heads, cuboid_size):
+        def __init__(
+            self, T_in, H, W, C_in, pred_steps, base_dim, depth, num_heads, cuboid_size
+        ):
             super().__init__()
             self.stem = nn.Conv2d(C_in, base_dim, 3, padding=1)
             self.enc_stage0 = Stage(base_dim, num_heads, depth, cuboid_size)
@@ -141,7 +179,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     T_in, H, W, C_in = 2, 16, 16, 1
     pred_steps, base_dim, depth, num_heads, cuboid_size = 3, 8, 2, 2, (2, 4, 4)
 
-    torch_model = TorchEarthformer(T_in, H, W, C_in, pred_steps, base_dim, depth, num_heads, cuboid_size)
+    torch_model = TorchEarthformer(
+        T_in, H, W, C_in, pred_steps, base_dim, depth, num_heads, cuboid_size
+    )
     torch_model.eval()
     with torch.no_grad():
         for p in torch_model.parameters():
@@ -164,13 +204,25 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         flat[f"{p}.mlp.fc1.bias"] = blk.mlp.fc1.bias.detach().numpy()
         flat[f"{p}.mlp.fc2.weight"] = blk.mlp.fc2.weight.detach().numpy()
         flat[f"{p}.mlp.fc2.bias"] = blk.mlp.fc2.bias.detach().numpy()
-    flat["time_channel_proj.weight"] = torch_model.time_channel_proj.weight.detach().numpy()
+    flat["time_channel_proj.weight"] = (
+        torch_model.time_channel_proj.weight.detach().numpy()
+    )
     flat["time_channel_proj.bias"] = torch_model.time_channel_proj.bias.detach().numpy()
 
-    keras_model = Earthformer(input_shape=(T_in, H, W, C_in), pred_steps=pred_steps, base_dim=base_dim,
-                               stage_depths=(depth,), num_heads=num_heads, cuboid_size=cuboid_size)
-    mapper = build_earthformer_mapper(num_enc_stages=1, num_dec_stages=0, enc_depths=[depth])
-    report = WeightConverter(keras_model, flat, mapper).convert(strict=True, verbose=False)
+    keras_model = Earthformer(
+        input_shape=(T_in, H, W, C_in),
+        pred_steps=pred_steps,
+        base_dim=base_dim,
+        stage_depths=(depth,),
+        num_heads=num_heads,
+        cuboid_size=cuboid_size,
+    )
+    mapper = build_earthformer_mapper(
+        num_enc_stages=1, num_dec_stages=0, enc_depths=[depth]
+    )
+    report = WeightConverter(keras_model, flat, mapper).convert(
+        strict=True, verbose=False
+    )
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
@@ -182,4 +234,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_out = keras.ops.convert_to_numpy(keras_model(keras_in, training=False))
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-3, f"Earthformer weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-3
+    ), f"Earthformer weight port numerical mismatch: max abs diff {max_diff}"

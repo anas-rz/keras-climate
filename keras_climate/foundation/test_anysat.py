@@ -8,10 +8,15 @@ from keras_climate.weights.mappings import build_anysat_mapper
 
 
 def test_encoder_builds_and_runs_with_multiple_modalities():
-    specs = {"s2": {"patch_size_px": 8, "gsd_m": 10.0}, "s1": {"patch_size_px": 4, "gsd_m": 20.0}}
+    specs = {
+        "s2": {"patch_size_px": 8, "gsd_m": 10.0},
+        "s1": {"patch_size_px": 4, "gsd_m": 20.0},
+    }
     encoder = AnySatEncoder(specs, embed_dim=32, depth=2, num_heads=4)
-    x = {"s2": np.random.randn(2, 32, 32, 4).astype("float32"),
-         "s1": np.random.randn(2, 16, 16, 2).astype("float32")}
+    x = {
+        "s2": np.random.randn(2, 32, 32, 4).astype("float32"),
+        "s1": np.random.randn(2, 16, 16, 2).astype("float32"),
+    }
     out = encoder(x)
     num_patches = (32 // 8) ** 2 + (16 // 4) ** 2
     assert tuple(out.shape) == (2, num_patches + 1, 32)
@@ -19,17 +24,32 @@ def test_encoder_builds_and_runs_with_multiple_modalities():
 
 def test_classifier():
     specs = {"s2": {"patch_size_px": 8, "gsd_m": 10.0}}
-    clf = AnySatClassifier(specs, embed_dim=32, depth=2, num_heads=4,
-                            input_shapes={"s2": (32, 32, 4)}, num_classes=5)
-    y = keras.ops.convert_to_numpy(clf({"s2": np.random.randn(1, 32, 32, 4).astype("float32")}))
+    clf = AnySatClassifier(
+        specs,
+        embed_dim=32,
+        depth=2,
+        num_heads=4,
+        input_shapes={"s2": (32, 32, 4)},
+        num_classes=5,
+    )
+    y = keras.ops.convert_to_numpy(
+        clf({"s2": np.random.randn(1, 32, 32, 4).astype("float32")})
+    )
     assert y.shape == (1, 5)
 
 
 def test_missing_modality_is_simply_omitted():
-    specs = {"s2": {"patch_size_px": 8, "gsd_m": 10.0}, "s1": {"patch_size_px": 4, "gsd_m": 20.0}}
+    specs = {
+        "s2": {"patch_size_px": 8, "gsd_m": 10.0},
+        "s1": {"patch_size_px": 4, "gsd_m": 20.0},
+    }
     encoder = AnySatEncoder(specs, embed_dim=32, depth=1, num_heads=4)
-    out_both = encoder({"s2": np.random.randn(1, 32, 32, 4).astype("float32"),
-                         "s1": np.random.randn(1, 16, 16, 2).astype("float32")})
+    out_both = encoder(
+        {
+            "s2": np.random.randn(1, 32, 32, 4).astype("float32"),
+            "s1": np.random.randn(1, 16, 16, 2).astype("float32"),
+        }
+    )
     out_s2_only = encoder({"s2": np.random.randn(1, 32, 32, 4).astype("float32")})
     assert out_both.shape[1] > out_s2_only.shape[1]
 
@@ -45,11 +65,15 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.proj = nn.Linear(dim, dim)
             self.num_heads = num_heads
             self.head_dim = dim // num_heads
-            self.scale = self.head_dim ** -0.5
+            self.scale = self.head_dim**-0.5
 
         def forward(self, x):
             B, N, C = x.shape
-            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            qkv = (
+                self.qkv(x)
+                .reshape(B, N, 3, self.num_heads, self.head_dim)
+                .permute(2, 0, 3, 1, 4)
+            )
             q, k, v = qkv[0], qkv[1], qkv[2]
             attn = (q @ k.transpose(-2, -1)) * self.scale
             attn = attn.softmax(dim=-1)
@@ -87,7 +111,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.fc2 = nn.Linear(dim, dim)
 
         def forward(self, coords):
-            freqs = self.max_freq ** (torch.arange(self.num_freqs).float() / self.num_freqs)
+            freqs = self.max_freq ** (
+                torch.arange(self.num_freqs).float() / self.num_freqs
+            )
             args = coords[..., None] / freqs
             feats = torch.cat([args.sin(), args.cos()], dim=-1)
             B, N = coords.shape[0], coords.shape[1]
@@ -99,16 +125,25 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             super().__init__()
             self.modality_specs = modality_specs
             self.embed_dim = embed_dim
-            self.embeds = nn.ModuleDict({
-                m: nn.Conv2d(4 if m == "s2" else 2, embed_dim, spec["patch_size_px"], spec["patch_size_px"])
-                for m, spec in modality_specs.items()
-            })
-            self.modtoks = nn.ParameterDict({
-                m: nn.Parameter(torch.zeros(1, 1, embed_dim)) for m in modality_specs
-            })
+            self.embeds = nn.ModuleDict(
+                {
+                    m: nn.Conv2d(
+                        4 if m == "s2" else 2,
+                        embed_dim,
+                        spec["patch_size_px"],
+                        spec["patch_size_px"],
+                    )
+                    for m, spec in modality_specs.items()
+                }
+            )
+            self.modtoks = nn.ParameterDict(
+                {m: nn.Parameter(torch.zeros(1, 1, embed_dim)) for m in modality_specs}
+            )
             self.pos_encoding = CoordMlp(embed_dim)
             self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-            self.blocks = nn.ModuleList([Block(embed_dim, num_heads) for _ in range(depth)])
+            self.blocks = nn.ModuleList(
+                [Block(embed_dim, num_heads) for _ in range(depth)]
+            )
             self.norm = nn.LayerNorm(embed_dim, eps=1e-6)
 
         def forward(self, inputs):
@@ -123,7 +158,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
                 ys = (torch.arange(H).float() + 0.5) * patch_extent
                 xs = (torch.arange(W).float() + 0.5) * patch_extent
                 gy, gx = torch.meshgrid(ys, xs, indexing="ij")
-                coords = torch.stack([gx.flatten(), gy.flatten()], dim=-1)[None].expand(B, -1, -1)
+                coords = torch.stack([gx.flatten(), gy.flatten()], dim=-1)[None].expand(
+                    B, -1, -1
+                )
                 tok = tok + self.pos_encoding(coords) + self.modtoks[modality]
                 all_tokens.append(tok)
             tokens = torch.cat(all_tokens, dim=1)
@@ -134,7 +171,10 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return self.norm(tokens)
 
     torch.manual_seed(0)
-    specs = {"s2": {"patch_size_px": 8, "gsd_m": 10.0}, "s1": {"patch_size_px": 4, "gsd_m": 20.0}}
+    specs = {
+        "s2": {"patch_size_px": 8, "gsd_m": 10.0},
+        "s1": {"patch_size_px": 4, "gsd_m": 20.0},
+    }
     embed_dim, depth, num_heads = 32, 2, 4
 
     torch_model = TorchAnySatEncoder(specs, embed_dim, depth, num_heads)
@@ -149,35 +189,60 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         flat[f"embed_{m}.proj.bias"] = torch_model.embeds[m].bias.detach().numpy()
         flat[f"modtok_{m}"] = torch_model.modtoks[m].detach().numpy()
     flat["cls_token"] = torch_model.cls_token.detach().numpy()
-    flat["pos_encoding.coord_mlp.fc1.weight"] = torch_model.pos_encoding.fc1.weight.detach().numpy()
-    flat["pos_encoding.coord_mlp.fc1.bias"] = torch_model.pos_encoding.fc1.bias.detach().numpy()
-    flat["pos_encoding.coord_mlp.fc2.weight"] = torch_model.pos_encoding.fc2.weight.detach().numpy()
-    flat["pos_encoding.coord_mlp.fc2.bias"] = torch_model.pos_encoding.fc2.bias.detach().numpy()
+    flat["pos_encoding.coord_mlp.fc1.weight"] = (
+        torch_model.pos_encoding.fc1.weight.detach().numpy()
+    )
+    flat["pos_encoding.coord_mlp.fc1.bias"] = (
+        torch_model.pos_encoding.fc1.bias.detach().numpy()
+    )
+    flat["pos_encoding.coord_mlp.fc2.weight"] = (
+        torch_model.pos_encoding.fc2.weight.detach().numpy()
+    )
+    flat["pos_encoding.coord_mlp.fc2.bias"] = (
+        torch_model.pos_encoding.fc2.bias.detach().numpy()
+    )
     for i, blk in enumerate(torch_model.blocks):
         for k, v in blk.state_dict().items():
             flat[f"blocks.{i}.{k}"] = v.detach().numpy()
     flat["norm.weight"] = torch_model.norm.weight.detach().numpy()
     flat["norm.bias"] = torch_model.norm.bias.detach().numpy()
 
-    keras_model = AnySatEncoder(specs, embed_dim=embed_dim, depth=depth, num_heads=num_heads,
-                                 name="anysat_encoder")
-    keras_model({"s2": np.zeros((1, 32, 32, 4), dtype="float32"),
-                 "s1": np.zeros((1, 16, 16, 2), dtype="float32")})
+    keras_model = AnySatEncoder(
+        specs,
+        embed_dim=embed_dim,
+        depth=depth,
+        num_heads=num_heads,
+        name="anysat_encoder",
+    )
+    keras_model(
+        {
+            "s2": np.zeros((1, 32, 32, 4), dtype="float32"),
+            "s1": np.zeros((1, 16, 16, 2), dtype="float32"),
+        }
+    )
 
     mapper = build_anysat_mapper(list(specs), keras_prefix="anysat_encoder")
-    report = WeightConverter(keras_model, flat, mapper).convert(strict=True, verbose=False)
+    report = WeightConverter(keras_model, flat, mapper).convert(
+        strict=True, verbose=False
+    )
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
     x_s2 = np.random.randn(1, 32, 32, 4).astype("float32")
     x_s1 = np.random.randn(1, 16, 16, 2).astype("float32")
     with torch.no_grad():
-        torch_out = torch_model({
-            "s2": torch.from_numpy(np.transpose(x_s2, (0, 3, 1, 2))),
-            "s1": torch.from_numpy(np.transpose(x_s1, (0, 3, 1, 2))),
-        }).numpy()
+        torch_out = torch_model(
+            {
+                "s2": torch.from_numpy(np.transpose(x_s2, (0, 3, 1, 2))),
+                "s1": torch.from_numpy(np.transpose(x_s1, (0, 3, 1, 2))),
+            }
+        ).numpy()
 
-    keras_out = keras.ops.convert_to_numpy(keras_model({"s2": x_s2, "s1": x_s1}, training=False))
+    keras_out = keras.ops.convert_to_numpy(
+        keras_model({"s2": x_s2, "s1": x_s1}, training=False)
+    )
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-3, f"AnySat weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-3
+    ), f"AnySat weight port numerical mismatch: max abs diff {max_diff}"

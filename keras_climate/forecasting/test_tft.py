@@ -2,15 +2,25 @@ import numpy as np
 import pytest
 import keras
 
-from keras_climate.forecasting.tft import TemporalFusionTransformer, GatedResidualNetwork
+from keras_climate.forecasting.tft import (
+    TemporalFusionTransformer,
+    GatedResidualNetwork,
+)
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_tft_mapper, convert_tft_lstm_state_dict
 
 
 def test_builds_and_runs():
-    model = TemporalFusionTransformer(encoder_len=24, decoder_len=6, num_past_vars=3,
-                                       num_future_vars=2, num_static_vars=2, hidden_dim=16,
-                                       num_heads=2, quantiles=(0.1, 0.5, 0.9))
+    model = TemporalFusionTransformer(
+        encoder_len=24,
+        decoder_len=6,
+        num_past_vars=3,
+        num_future_vars=2,
+        num_static_vars=2,
+        hidden_dim=16,
+        num_heads=2,
+        quantiles=(0.1, 0.5, 0.9),
+    )
     past = np.random.randn(2, 24, 3).astype("float32")
     future = np.random.randn(2, 6, 2).astype("float32")
     static = np.random.randn(2, 2).astype("float32")
@@ -58,13 +68,17 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     class TorchVSN(nn.Module):
         def __init__(self, num_vars, hidden_dim):
             super().__init__()
-            self.var_grns = nn.ModuleList([TorchGRN(hidden_dim, hidden_dim) for _ in range(num_vars)])
+            self.var_grns = nn.ModuleList(
+                [TorchGRN(hidden_dim, hidden_dim) for _ in range(num_vars)]
+            )
             self.flatten_grn = TorchGRN(num_vars * hidden_dim, num_vars)
 
         def forward(self, per_var_embeds):
             flat = torch.cat(per_var_embeds, dim=-1)
             weights = torch.softmax(self.flatten_grn(flat), dim=-1)
-            processed = torch.stack([grn(v) for grn, v in zip(self.var_grns, per_var_embeds)], dim=-2)
+            processed = torch.stack(
+                [grn(v) for grn, v in zip(self.var_grns, per_var_embeds)], dim=-2
+            )
             return (processed * weights.unsqueeze(-1)).sum(dim=-2)
 
     class TorchAttention(nn.Module):
@@ -72,8 +86,12 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             super().__init__()
             self.num_heads = num_heads
             self.head_dim = d_model // num_heads
-            self.q_layers = nn.ModuleList([nn.Linear(d_model, self.head_dim) for _ in range(num_heads)])
-            self.k_layers = nn.ModuleList([nn.Linear(d_model, self.head_dim) for _ in range(num_heads)])
+            self.q_layers = nn.ModuleList(
+                [nn.Linear(d_model, self.head_dim) for _ in range(num_heads)]
+            )
+            self.k_layers = nn.ModuleList(
+                [nn.Linear(d_model, self.head_dim) for _ in range(num_heads)]
+            )
             self.v_layer = nn.Linear(d_model, self.head_dim)
             self.out_proj = nn.Linear(self.head_dim, d_model)
 
@@ -82,15 +100,24 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             head_outs = []
             for q_l, k_l in zip(self.q_layers, self.k_layers):
                 q, k = q_l(x), k_l(x)
-                scores = (q @ k.transpose(-2, -1)) / (self.head_dim ** 0.5) + mask
+                scores = (q @ k.transpose(-2, -1)) / (self.head_dim**0.5) + mask
                 attn = torch.softmax(scores, dim=-1)
                 head_outs.append(attn @ v)
             out = torch.stack(head_outs, dim=-1).mean(dim=-1)
             return self.out_proj(out)
 
     class TorchTFT(nn.Module):
-        def __init__(self, encoder_len, decoder_len, num_past_vars, num_future_vars,
-                     num_static_vars, hidden_dim, num_heads, num_quantiles):
+        def __init__(
+            self,
+            encoder_len,
+            decoder_len,
+            num_past_vars,
+            num_future_vars,
+            num_static_vars,
+            hidden_dim,
+            num_heads,
+            num_quantiles,
+        ):
             super().__init__()
             self.hidden_dim = hidden_dim
             self.static_embed = nn.Linear(num_static_vars, hidden_dim)
@@ -127,11 +154,15 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             static_ctx_h = self.static_ctx_h(static_embed)
             static_ctx_c = self.static_ctx_c(static_embed)
 
-            past_embeds = [getattr(self, f"past_var{i}_embed")(past_in[..., i:i + 1])
-                           for i in range(self.num_past_vars)]
+            past_embeds = [
+                getattr(self, f"past_var{i}_embed")(past_in[..., i : i + 1])
+                for i in range(self.num_past_vars)
+            ]
             past_selected = self.past_vsn(past_embeds)
-            future_embeds = [getattr(self, f"future_var{i}_embed")(future_in[..., i:i + 1])
-                             for i in range(self.num_future_vars)]
+            future_embeds = [
+                getattr(self, f"future_var{i}_embed")(future_in[..., i : i + 1])
+                for i in range(self.num_future_vars)
+            ]
             future_selected = self.future_vsn(future_embeds)
 
             h0 = static_ctx_h.unsqueeze(0)
@@ -154,7 +185,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             x = self.positionwise_ff(x)
             x = self.final_norm(x + lstm_out)
 
-            decoder_span = x[:, self.encoder_len:, :]
+            decoder_span = x[:, self.encoder_len :, :]
             return self.quantile_head(decoder_span)
 
     torch.manual_seed(0)
@@ -162,8 +193,16 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     num_past_vars, num_future_vars, num_static_vars = 2, 1, 2
     hidden_dim, num_heads, num_quantiles = 8, 2, 3
 
-    torch_model = TorchTFT(encoder_len, decoder_len, num_past_vars, num_future_vars,
-                            num_static_vars, hidden_dim, num_heads, num_quantiles)
+    torch_model = TorchTFT(
+        encoder_len,
+        decoder_len,
+        num_past_vars,
+        num_future_vars,
+        num_static_vars,
+        hidden_dim,
+        num_heads,
+        num_quantiles,
+    )
     torch_model.eval()
     with torch.no_grad():
         for p in torch_model.parameters():
@@ -172,19 +211,35 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     state_dict = {k: v.detach().numpy() for k, v in torch_model.state_dict().items()}
 
     keras_model = TemporalFusionTransformer(
-        encoder_len=encoder_len, decoder_len=decoder_len, num_past_vars=num_past_vars,
-        num_future_vars=num_future_vars, num_static_vars=num_static_vars, hidden_dim=hidden_dim,
-        num_heads=num_heads, dropout=0.0, quantiles=tuple(range(num_quantiles)),
+        encoder_len=encoder_len,
+        decoder_len=decoder_len,
+        num_past_vars=num_past_vars,
+        num_future_vars=num_future_vars,
+        num_static_vars=num_static_vars,
+        hidden_dim=hidden_dim,
+        num_heads=num_heads,
+        dropout=0.0,
+        quantiles=tuple(range(num_quantiles)),
     )
 
-    grn_mapper = build_tft_mapper(num_past_vars=num_past_vars, num_future_vars=num_future_vars,
-                                   hidden_dim=hidden_dim)
+    grn_mapper = build_tft_mapper(
+        num_past_vars=num_past_vars,
+        num_future_vars=num_future_vars,
+        hidden_dim=hidden_dim,
+    )
     lstm_state = {}
-    lstm_state.update(convert_tft_lstm_state_dict(state_dict, "lstm_encoder", "lstm_encoder"))
-    lstm_state.update(convert_tft_lstm_state_dict(state_dict, "lstm_decoder", "lstm_decoder"))
+    lstm_state.update(
+        convert_tft_lstm_state_dict(state_dict, "lstm_encoder", "lstm_encoder")
+    )
+    lstm_state.update(
+        convert_tft_lstm_state_dict(state_dict, "lstm_decoder", "lstm_decoder")
+    )
 
-    non_lstm_state = {k: v for k, v in state_dict.items()
-                       if not k.startswith(("lstm_encoder.", "lstm_decoder."))}
+    non_lstm_state = {
+        k: v
+        for k, v in state_dict.items()
+        if not k.startswith(("lstm_encoder.", "lstm_decoder."))
+    }
     combined_state = {**non_lstm_state, **lstm_state}
 
     def combined_mapper(key):
@@ -193,7 +248,8 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         return grn_mapper(key)
 
     report = WeightConverter(keras_model, combined_state, combined_mapper).convert(
-        strict=True, verbose=False)
+        strict=True, verbose=False
+    )
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
@@ -202,11 +258,17 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     static_np = np.random.randn(2, num_static_vars).astype("float32")
 
     with torch.no_grad():
-        torch_out = torch_model(torch.from_numpy(past_np), torch.from_numpy(future_np),
-                                 torch.from_numpy(static_np)).numpy()
+        torch_out = torch_model(
+            torch.from_numpy(past_np),
+            torch.from_numpy(future_np),
+            torch.from_numpy(static_np),
+        ).numpy()
 
     keras_out = keras.ops.convert_to_numpy(
-        keras_model([past_np, future_np, static_np], training=False))
+        keras_model([past_np, future_np, static_np], training=False)
+    )
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-2, f"TFT weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-2
+    ), f"TFT weight port numerical mismatch: max abs diff {max_diff}"

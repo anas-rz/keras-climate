@@ -17,15 +17,29 @@ class GSDPositionalEmbedding(layers.Layer):
         )
         self._grid_h_np = grid_h.reshape(-1)
         self._grid_w_np = grid_w.reshape(-1)
-        self._omega_np = 1.0 / (10000 ** (np.arange(dim // 4, dtype=np.float32) / (dim / 4.0)))
+        self._omega_np = 1.0 / (
+            10000 ** (np.arange(dim // 4, dtype=np.float32) / (dim / 4.0))
+        )
 
     def build(self, input_shape):
-        self.grid_h = self.add_weight(shape=self._grid_h_np.shape, initializer=keras.initializers.Constant(
-            self._grid_h_np), trainable=False, name="grid_h")
-        self.grid_w = self.add_weight(shape=self._grid_w_np.shape, initializer=keras.initializers.Constant(
-            self._grid_w_np), trainable=False, name="grid_w")
-        self.omega = self.add_weight(shape=self._omega_np.shape, initializer=keras.initializers.Constant(
-            self._omega_np), trainable=False, name="omega")
+        self.grid_h = self.add_weight(
+            shape=self._grid_h_np.shape,
+            initializer=keras.initializers.Constant(self._grid_h_np),
+            trainable=False,
+            name="grid_h",
+        )
+        self.grid_w = self.add_weight(
+            shape=self._grid_w_np.shape,
+            initializer=keras.initializers.Constant(self._grid_w_np),
+            trainable=False,
+            name="grid_w",
+        )
+        self.omega = self.add_weight(
+            shape=self._omega_np.shape,
+            initializer=keras.initializers.Constant(self._omega_np),
+            trainable=False,
+            name="omega",
+        )
         super().build(input_shape)
 
     def call(self, res):
@@ -42,17 +56,33 @@ class GSDPositionalEmbedding(layers.Layer):
 
 class ScaleMAEEncoder(keras.Model):
 
-    def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=1024,
-                 depth=24, num_heads=16, mlp_ratio=4.0, name="scalemae_encoder", **kwargs):
+    def __init__(
+        self,
+        img_size=224,
+        patch_size=16,
+        in_chans=3,
+        embed_dim=1024,
+        depth=24,
+        num_heads=16,
+        mlp_ratio=4.0,
+        name="scalemae_encoder",
+        **kwargs,
+    ):
         super().__init__(name=name, **kwargs)
         self.img_size = img_size
         self.patch_size = patch_size
         self.embed_dim = embed_dim
         grid_size = img_size // patch_size
 
-        self.patch_embed = PatchEmbed2D(patch_size, embed_dim, norm=False, name="patch_embed")
-        self.cls_token = self.add_weight(shape=(1, 1, embed_dim), initializer="zeros",
-                                          trainable=True, name="cls_token")
+        self.patch_embed = PatchEmbed2D(
+            patch_size, embed_dim, norm=False, name="patch_embed"
+        )
+        self.cls_token = self.add_weight(
+            shape=(1, 1, embed_dim),
+            initializer="zeros",
+            trainable=True,
+            name="cls_token",
+        )
         self.pos_embed = GSDPositionalEmbedding(grid_size, embed_dim, name="pos_embed")
 
         self.blocks = [
@@ -76,11 +106,27 @@ class ScaleMAEEncoder(keras.Model):
         return self.norm(tokens)
 
 
-def ScaleMAE(img_size=224, patch_size=16, in_chans=3, embed_dim=1024, depth=24,
-             num_heads=16, mlp_ratio=4.0, name="scalemae"):
+def ScaleMAE(
+    img_size=224,
+    patch_size=16,
+    in_chans=3,
+    embed_dim=1024,
+    depth=24,
+    num_heads=16,
+    mlp_ratio=4.0,
+    name="scalemae",
+):
     image_in = keras.Input(shape=(img_size, img_size, in_chans), name="image")
     res_in = keras.Input(shape=(), name="res")
-    encoder = ScaleMAEEncoder(img_size, patch_size, in_chans, embed_dim, depth,
-                               num_heads, mlp_ratio, name=f"{name}_encoder")
+    encoder = ScaleMAEEncoder(
+        img_size,
+        patch_size,
+        in_chans,
+        embed_dim,
+        depth,
+        num_heads,
+        mlp_ratio,
+        name=f"{name}_encoder",
+    )
     tokens = encoder([image_in, res_in])
     return keras.Model([image_in, res_in], tokens, name=name)

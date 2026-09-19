@@ -65,7 +65,9 @@ class AutoCorrelation(layers.Layer):
 class AutoformerEncoderLayer(layers.Layer):
     def __init__(self, d_model, num_heads, d_ff, moving_avg=25, dropout=0.1, **kwargs):
         super().__init__(**kwargs)
-        self.auto_correlation = AutoCorrelation(d_model, num_heads, name="auto_correlation")
+        self.auto_correlation = AutoCorrelation(
+            d_model, num_heads, name="auto_correlation"
+        )
         self.decomp1 = SeriesDecomposition(moving_avg, name="decomp1")
         self.conv1 = layers.Conv1D(d_ff, 1, name="conv1")
         self.act = layers.Activation("gelu")
@@ -84,11 +86,24 @@ class AutoformerEncoderLayer(layers.Layer):
 
 
 class AutoformerDecoderLayer(layers.Layer):
-    def __init__(self, d_model, num_heads, d_ff, num_channels, moving_avg=25, dropout=0.1, **kwargs):
+    def __init__(
+        self,
+        d_model,
+        num_heads,
+        d_ff,
+        num_channels,
+        moving_avg=25,
+        dropout=0.1,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
-        self.self_correlation = AutoCorrelation(d_model, num_heads, name="self_correlation")
+        self.self_correlation = AutoCorrelation(
+            d_model, num_heads, name="self_correlation"
+        )
         self.decomp1 = SeriesDecomposition(moving_avg, name="decomp1")
-        self.cross_correlation = AutoCorrelation(d_model, num_heads, name="cross_correlation")
+        self.cross_correlation = AutoCorrelation(
+            d_model, num_heads, name="cross_correlation"
+        )
         self.decomp2 = SeriesDecomposition(moving_avg, name="decomp2")
         self.conv1 = layers.Conv1D(d_ff, 1, name="conv1")
         self.act = layers.Activation("gelu")
@@ -112,38 +127,63 @@ class AutoformerDecoderLayer(layers.Layer):
         return x, trend
 
 
-def Autoformer(seq_len=96, label_len=48, pred_len=24, num_channels=7, d_model=64, num_heads=4,
-               d_ff=128, encoder_layers=2, decoder_layers=1, moving_avg=25, dropout=0.1,
-               name="autoformer"):
+def Autoformer(
+    seq_len=96,
+    label_len=48,
+    pred_len=24,
+    num_channels=7,
+    d_model=64,
+    num_heads=4,
+    d_ff=128,
+    encoder_layers=2,
+    decoder_layers=1,
+    moving_avg=25,
+    dropout=0.1,
+    name="autoformer",
+):
     enc_in = keras.Input((seq_len, num_channels), name="encoder_series")
     label_in = keras.Input((label_len, num_channels), name="label_series")
 
-    seasonal_init, trend_init = SeriesDecomposition(moving_avg, name="init_decomp")(label_in)
+    seasonal_init, trend_init = SeriesDecomposition(moving_avg, name="init_decomp")(
+        label_in
+    )
 
-    mean_trend = layers.Lambda(lambda t: ops.mean(t, axis=1, keepdims=True),
-                                name="label_mean")(label_in)
-    trend_pred_part = layers.Lambda(lambda t: ops.repeat(t, pred_len, axis=1),
-                                     name="trend_pred_fill")(mean_trend)
+    mean_trend = layers.Lambda(
+        lambda t: ops.mean(t, axis=1, keepdims=True), name="label_mean"
+    )(label_in)
+    trend_pred_part = layers.Lambda(
+        lambda t: ops.repeat(t, pred_len, axis=1), name="trend_pred_fill"
+    )(mean_trend)
     trend_init_full = layers.Concatenate(axis=1, name="trend_init_concat")(
-        [trend_init, trend_pred_part])
+        [trend_init, trend_pred_part]
+    )
 
     zeros_seasonal = layers.Lambda(
         lambda t: ops.zeros((ops.shape(t)[0], pred_len, num_channels)),
-        name="seasonal_pred_fill")(label_in)
+        name="seasonal_pred_fill",
+    )(label_in)
     seasonal_init_full = layers.Concatenate(axis=1, name="seasonal_init_concat")(
-        [seasonal_init, zeros_seasonal])
+        [seasonal_init, zeros_seasonal]
+    )
 
     enc_x = ValueEmbedding(d_model, name="enc_embedding")(enc_in)
     for i in range(encoder_layers):
-        enc_x = AutoformerEncoderLayer(d_model, num_heads, d_ff, moving_avg, dropout,
-                                        name=f"encoder_layer{i}")(enc_x)
+        enc_x = AutoformerEncoderLayer(
+            d_model, num_heads, d_ff, moving_avg, dropout, name=f"encoder_layer{i}"
+        )(enc_x)
 
     dec_x = ValueEmbedding(d_model, name="dec_embedding")(seasonal_init_full)
     trend = trend_init_full
     for i in range(decoder_layers):
         dec_x, layer_trend = AutoformerDecoderLayer(
-            d_model, num_heads, d_ff, num_channels, moving_avg, dropout,
-            name=f"decoder_layer{i}")(dec_x, enc_x)
+            d_model,
+            num_heads,
+            d_ff,
+            num_channels,
+            moving_avg,
+            dropout,
+            name=f"decoder_layer{i}",
+        )(dec_x, enc_x)
         trend = layers.Add(name=f"decoder_layer{i}_trend_add")([trend, layer_trend])
 
     seasonal_out = layers.Dense(num_channels, name="projection")(dec_x)

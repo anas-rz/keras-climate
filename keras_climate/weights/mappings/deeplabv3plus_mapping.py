@@ -29,11 +29,20 @@ def build_resnet_backbone_mapper(keras_prefix="backbone", layer_counts=(3, 4, 6,
             kp = f"{stage_kp}_block{i}"
             for c in (1, 2):
                 rules += [
-                    (rf"^{re.escape(tp)}\.conv{c}\.weight$", f"{kp}_conv{c}/conv/kernel"),
+                    (
+                        rf"^{re.escape(tp)}\.conv{c}\.weight$",
+                        f"{kp}_conv{c}/conv/kernel",
+                    ),
                     (rf"^{re.escape(tp)}\.bn{c}\.weight$", f"{kp}_conv{c}/bn/gamma"),
                     (rf"^{re.escape(tp)}\.bn{c}\.bias$", f"{kp}_conv{c}/bn/beta"),
-                    (rf"^{re.escape(tp)}\.bn{c}\.running_mean$", f"{kp}_conv{c}/bn/moving_mean"),
-                    (rf"^{re.escape(tp)}\.bn{c}\.running_var$", f"{kp}_conv{c}/bn/moving_variance"),
+                    (
+                        rf"^{re.escape(tp)}\.bn{c}\.running_mean$",
+                        f"{kp}_conv{c}/bn/moving_mean",
+                    ),
+                    (
+                        rf"^{re.escape(tp)}\.bn{c}\.running_var$",
+                        f"{kp}_conv{c}/bn/moving_variance",
+                    ),
                 ]
             rules += [
                 (rf"^{re.escape(tp)}\.conv3\.weight$", f"{kp}_conv3/kernel"),
@@ -41,17 +50,34 @@ def build_resnet_backbone_mapper(keras_prefix="backbone", layer_counts=(3, 4, 6,
                 (rf"^{re.escape(tp)}\.bn3\.bias$", f"{kp}_bn3/beta"),
                 (rf"^{re.escape(tp)}\.bn3\.running_mean$", f"{kp}_bn3/moving_mean"),
                 (rf"^{re.escape(tp)}\.bn3\.running_var$", f"{kp}_bn3/moving_variance"),
-                (rf"^{re.escape(tp)}\.downsample\.0\.weight$", f"{kp}_downsample_conv/kernel"),
-                (rf"^{re.escape(tp)}\.downsample\.1\.weight$", f"{kp}_downsample_bn/gamma"),
-                (rf"^{re.escape(tp)}\.downsample\.1\.bias$", f"{kp}_downsample_bn/beta"),
-                (rf"^{re.escape(tp)}\.downsample\.1\.running_mean$", f"{kp}_downsample_bn/moving_mean"),
-                (rf"^{re.escape(tp)}\.downsample\.1\.running_var$", f"{kp}_downsample_bn/moving_variance"),
+                (
+                    rf"^{re.escape(tp)}\.downsample\.0\.weight$",
+                    f"{kp}_downsample_conv/kernel",
+                ),
+                (
+                    rf"^{re.escape(tp)}\.downsample\.1\.weight$",
+                    f"{kp}_downsample_bn/gamma",
+                ),
+                (
+                    rf"^{re.escape(tp)}\.downsample\.1\.bias$",
+                    f"{kp}_downsample_bn/beta",
+                ),
+                (
+                    rf"^{re.escape(tp)}\.downsample\.1\.running_mean$",
+                    f"{kp}_downsample_bn/moving_mean",
+                ),
+                (
+                    rf"^{re.escape(tp)}\.downsample\.1\.running_var$",
+                    f"{kp}_downsample_bn/moving_variance",
+                ),
             ]
 
     return rules
 
 
-def build_deeplabv3plus_mapper(backbone_keras_prefix="backbone", layer_counts=(3, 4, 6, 3)):
+def build_deeplabv3plus_mapper(
+    backbone_keras_prefix="backbone", layer_counts=(3, 4, 6, 3)
+):
     rules = build_resnet_backbone_mapper(backbone_keras_prefix, layer_counts)
 
     rules += _conv_bn_rules("aspp.b0", "aspp/b0")

@@ -59,7 +59,7 @@ class EarthAttention3D(layers.Layer):
         self.dim = dim
         self.heads = heads
         self.head_dim = dim // heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
         self.type_of_windows = type_of_windows
         self.window_vol = window_size[0] * window_size[1] * window_size[2]
 
@@ -67,9 +67,17 @@ class EarthAttention3D(layers.Layer):
         self.linear1 = layers.Dense(self.dim * 3, name="linear1")
         self.linear2 = layers.Dense(self.dim, name="linear2")
         self.earth_specific_bias = self.add_weight(
-            shape=(1, self.type_of_windows, self.heads, self.window_vol, self.window_vol),
+            shape=(
+                1,
+                self.type_of_windows,
+                self.heads,
+                self.window_vol,
+                self.window_vol,
+            ),
             initializer=keras.initializers.TruncatedNormal(stddev=0.02),
-            trainable=True, name="earth_specific_bias")
+            trainable=True,
+            name="earth_specific_bias",
+        )
         super().build(input_shape)
 
     def call(self, x, attn_mask=None):
@@ -129,7 +137,9 @@ def _gen_shift_mask(Z, H_pad, W, window_size):
 
 class EarthSpecificBlock(layers.Layer):
 
-    def __init__(self, dim, heads, resolution, shift, window_size=WINDOW_SIZE, **kwargs):
+    def __init__(
+        self, dim, heads, resolution, shift, window_size=WINDOW_SIZE, **kwargs
+    ):
         super().__init__(**kwargs)
         self.dim = dim
         self.window_size = window_size
@@ -142,16 +152,23 @@ class EarthSpecificBlock(layers.Layer):
 
         self.norm1 = layers.LayerNormalization(epsilon=1e-5, name="norm1")
         self.norm2 = layers.LayerNormalization(epsilon=1e-5, name="norm2")
-        self.attention = EarthAttention3D(dim, heads, self.type_of_windows, window_size, name="attention")
+        self.attention = EarthAttention3D(
+            dim, heads, self.type_of_windows, window_size, name="attention"
+        )
         self.linear = EarthMlp(dim, name="linear")
 
-        self._mask_np = _gen_shift_mask(Z, self.H_pad, W, window_size) if shift else None
+        self._mask_np = (
+            _gen_shift_mask(Z, self.H_pad, W, window_size) if shift else None
+        )
 
     def build(self, input_shape):
         if self._mask_np is not None:
             self.attn_mask = self.add_weight(
-                shape=self._mask_np.shape, initializer=keras.initializers.Constant(self._mask_np),
-                trainable=False, name="attn_mask")
+                shape=self._mask_np.shape,
+                initializer=keras.initializers.Constant(self._mask_np),
+                trainable=False,
+                name="attn_mask",
+            )
         else:
             self.attn_mask = None
         super().build(input_shape)
@@ -195,8 +212,13 @@ class EarthSpecificLayer(layers.Layer):
     def __init__(self, depth, dim, heads, resolution, **kwargs):
         super().__init__(**kwargs)
         self.blocks = [
-            EarthSpecificBlock(dim, heads, resolution, shift=(i % 2 == 1),
-                                name=f"blocks_EarthSpecificBlock{i}")
+            EarthSpecificBlock(
+                dim,
+                heads,
+                resolution,
+                shift=(i % 2 == 1),
+                name=f"blocks_EarthSpecificBlock{i}",
+            )
             for i in range(depth)
         ]
 
@@ -280,28 +302,52 @@ class PatchRecovery(layers.Layer):
         return upper, surface
 
 
-def PanguWeather(depths=(2, 6, 6, 2), num_heads=(6, 12, 12, 6), dims=(192, 384, 384, 192),
-                  name="pangu_weather"):
+def PanguWeather(
+    depths=(2, 6, 6, 2),
+    num_heads=(6, 12, 12, 6),
+    dims=(192, 384, 384, 192),
+    name="pangu_weather",
+):
     upper_in = keras.Input(shape=(13, 721, 1440, 6), name="upper_air")
     surface_in = keras.Input(shape=(721, 1440, 7), name="surface")
 
     x = PatchEmbedding(dims[0], name="_input_layer")([upper_in, surface_in])
 
-    x = EarthSpecificLayer(depths[0], dims[0], num_heads[0], (8, 181, 360),
-                            name="layers_EarthSpecificLayer0")(x)
+    x = EarthSpecificLayer(
+        depths[0],
+        dims[0],
+        num_heads[0],
+        (8, 181, 360),
+        name="layers_EarthSpecificLayer0",
+    )(x)
     skip = x
 
     x = DownSample(dims[0], (8, 181, 360), name="downsample")(x)
 
-    x = EarthSpecificLayer(depths[1], dims[1], num_heads[1], (8, 91, 180),
-                            name="layers_EarthSpecificLayer1")(x)
-    x = EarthSpecificLayer(depths[2], dims[2], num_heads[2], (8, 91, 180),
-                            name="layers_EarthSpecificLayer2")(x)
+    x = EarthSpecificLayer(
+        depths[1],
+        dims[1],
+        num_heads[1],
+        (8, 91, 180),
+        name="layers_EarthSpecificLayer1",
+    )(x)
+    x = EarthSpecificLayer(
+        depths[2],
+        dims[2],
+        num_heads[2],
+        (8, 91, 180),
+        name="layers_EarthSpecificLayer2",
+    )(x)
 
     x = UpSample(dims[3], name="upsample")(x)
 
-    x = EarthSpecificLayer(depths[3], dims[3], num_heads[3], (8, 181, 360),
-                            name="layers_EarthSpecificLayer3")(x)
+    x = EarthSpecificLayer(
+        depths[3],
+        dims[3],
+        num_heads[3],
+        (8, 181, 360),
+        name="layers_EarthSpecificLayer3",
+    )(x)
 
     x = layers.Concatenate(axis=-1, name="skip_concat")([skip, x])
 

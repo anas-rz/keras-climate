@@ -7,7 +7,10 @@ def _grn_rules(torch_prefix, keras_prefix, has_skip):
     rules = []
     if has_skip:
         rules += [
-            (rf"^{re.escape(torch_prefix)}\.skip\.weight$", f"{keras_prefix}/skip/kernel"),
+            (
+                rf"^{re.escape(torch_prefix)}\.skip\.weight$",
+                f"{keras_prefix}/skip/kernel",
+            ),
             (rf"^{re.escape(torch_prefix)}\.skip\.bias$", f"{keras_prefix}/skip/bias"),
         ]
     rules += [
@@ -26,10 +29,14 @@ def _grn_rules(torch_prefix, keras_prefix, has_skip):
 def _vsn_rules(torch_prefix, keras_prefix, num_vars, hidden_dim, flatten_in_dim):
     rules = []
     for i in range(num_vars):
-        rules += _grn_rules(f"{torch_prefix}.var_grns.{i}", f"{keras_prefix}/var_grn{i}",
-                             has_skip=False)
-    rules += _grn_rules(f"{torch_prefix}.flatten_grn", f"{keras_prefix}/flatten_grn",
-                         has_skip=(flatten_in_dim != num_vars))
+        rules += _grn_rules(
+            f"{torch_prefix}.var_grns.{i}", f"{keras_prefix}/var_grn{i}", has_skip=False
+        )
+    rules += _grn_rules(
+        f"{torch_prefix}.flatten_grn",
+        f"{keras_prefix}/flatten_grn",
+        has_skip=(flatten_in_dim != num_vars),
+    )
     return rules
 
 
@@ -57,14 +64,30 @@ def build_tft_mapper(num_past_vars, num_future_vars, hidden_dim):
             (rf"^future_var{i}_embed\.bias$", f"future_var{i}_embed/bias"),
         ]
 
-    for name in ("static_ctx_enrichment", "static_ctx_h", "static_ctx_c",
-                 "post_lstm_gate", "static_enrichment", "positionwise_ff"):
+    for name in (
+        "static_ctx_enrichment",
+        "static_ctx_h",
+        "static_ctx_c",
+        "post_lstm_gate",
+        "static_enrichment",
+        "positionwise_ff",
+    ):
         rules += _grn_rules(name, name, has_skip=False)
 
-    rules += _vsn_rules("past_vsn", "past_vsn", num_past_vars, hidden_dim,
-                         flatten_in_dim=num_past_vars * hidden_dim)
-    rules += _vsn_rules("future_vsn", "future_vsn", num_future_vars, hidden_dim,
-                         flatten_in_dim=num_future_vars * hidden_dim)
+    rules += _vsn_rules(
+        "past_vsn",
+        "past_vsn",
+        num_past_vars,
+        hidden_dim,
+        flatten_in_dim=num_past_vars * hidden_dim,
+    )
+    rules += _vsn_rules(
+        "future_vsn",
+        "future_vsn",
+        num_future_vars,
+        hidden_dim,
+        flatten_in_dim=num_future_vars * hidden_dim,
+    )
 
     num_heads_guess = 16
     rules += [

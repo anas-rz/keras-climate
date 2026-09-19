@@ -7,13 +7,25 @@ def _double_conv_rules(torch_prefix, keras_prefix):
         (rf"^{tp}\.double_conv\.0\.weight$", f"{keras_prefix}/conv1/conv/kernel"),
         (rf"^{tp}\.double_conv\.1\.weight$", f"{keras_prefix}/conv1/bn/gamma"),
         (rf"^{tp}\.double_conv\.1\.bias$", f"{keras_prefix}/conv1/bn/beta"),
-        (rf"^{tp}\.double_conv\.1\.running_mean$", f"{keras_prefix}/conv1/bn/moving_mean"),
-        (rf"^{tp}\.double_conv\.1\.running_var$", f"{keras_prefix}/conv1/bn/moving_variance"),
+        (
+            rf"^{tp}\.double_conv\.1\.running_mean$",
+            f"{keras_prefix}/conv1/bn/moving_mean",
+        ),
+        (
+            rf"^{tp}\.double_conv\.1\.running_var$",
+            f"{keras_prefix}/conv1/bn/moving_variance",
+        ),
         (rf"^{tp}\.double_conv\.3\.weight$", f"{keras_prefix}/conv2/conv/kernel"),
         (rf"^{tp}\.double_conv\.4\.weight$", f"{keras_prefix}/conv2/bn/gamma"),
         (rf"^{tp}\.double_conv\.4\.bias$", f"{keras_prefix}/conv2/bn/beta"),
-        (rf"^{tp}\.double_conv\.4\.running_mean$", f"{keras_prefix}/conv2/bn/moving_mean"),
-        (rf"^{tp}\.double_conv\.4\.running_var$", f"{keras_prefix}/conv2/bn/moving_variance"),
+        (
+            rf"^{tp}\.double_conv\.4\.running_mean$",
+            f"{keras_prefix}/conv2/bn/moving_mean",
+        ),
+        (
+            rf"^{tp}\.double_conv\.4\.running_var$",
+            f"{keras_prefix}/conv2/bn/moving_variance",
+        ),
     ]
 
 

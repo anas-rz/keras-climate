@@ -1,7 +1,11 @@
 import numpy as np
 import keras
 from keras import layers, ops
-from keras_climate.utils.layers import PatchEmbed2D, TransformerEncoderBlock, sincos_position_embedding_2d
+from keras_climate.utils.layers import (
+    PatchEmbed2D,
+    TransformerEncoderBlock,
+    sincos_position_embedding_2d,
+)
 
 
 class MaskingLayer(layers.Layer):
@@ -35,9 +39,21 @@ class MaskingLayer(layers.Layer):
 
 class SatMAEEncoder(keras.Model):
 
-    def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768,
-                 depth=12, num_heads=12, mlp_ratio=4.0, mode="single",
-                 num_groups=3, num_frames=3, name="satmae_encoder", **kwargs):
+    def __init__(
+        self,
+        img_size=224,
+        patch_size=16,
+        in_chans=3,
+        embed_dim=768,
+        depth=12,
+        num_heads=12,
+        mlp_ratio=4.0,
+        mode="single",
+        num_groups=3,
+        num_frames=3,
+        name="satmae_encoder",
+        **kwargs,
+    ):
         super().__init__(name=name, **kwargs)
         self.img_size = img_size
         self.patch_size = patch_size
@@ -46,22 +62,42 @@ class SatMAEEncoder(keras.Model):
         self.num_groups = num_groups
         self.num_frames = num_frames
 
-        self.patch_embed = PatchEmbed2D(patch_size, embed_dim, norm=False, name="patch_embed")
-        self.cls_token = self.add_weight(shape=(1, 1, embed_dim), initializer="zeros",
-                                          trainable=True, name="cls_token")
+        self.patch_embed = PatchEmbed2D(
+            patch_size, embed_dim, norm=False, name="patch_embed"
+        )
+        self.cls_token = self.add_weight(
+            shape=(1, 1, embed_dim),
+            initializer="zeros",
+            trainable=True,
+            name="cls_token",
+        )
 
         num_patches = (img_size // patch_size) ** 2
-        pos = sincos_position_embedding_2d(img_size // patch_size, img_size // patch_size, embed_dim)
+        pos = sincos_position_embedding_2d(
+            img_size // patch_size, img_size // patch_size, embed_dim
+        )
         pos = np.concatenate([np.zeros((1, embed_dim), dtype=np.float32), pos], axis=0)
-        self.pos_embed = self.add_weight(shape=pos.shape, initializer=keras.initializers.Constant(pos),
-                                          trainable=False, name="pos_embed")
+        self.pos_embed = self.add_weight(
+            shape=pos.shape,
+            initializer=keras.initializers.Constant(pos),
+            trainable=False,
+            name="pos_embed",
+        )
 
         if mode == "multispectral":
-            self.group_embed = self.add_weight(shape=(num_groups, 1, embed_dim), initializer="zeros",
-                                                 trainable=True, name="group_embed")
+            self.group_embed = self.add_weight(
+                shape=(num_groups, 1, embed_dim),
+                initializer="zeros",
+                trainable=True,
+                name="group_embed",
+            )
         elif mode == "temporal":
-            self.temporal_embed = self.add_weight(shape=(num_frames, 1, embed_dim), initializer="zeros",
-                                                    trainable=True, name="temporal_embed")
+            self.temporal_embed = self.add_weight(
+                shape=(num_frames, 1, embed_dim),
+                initializer="zeros",
+                trainable=True,
+                name="temporal_embed",
+            )
 
         self.blocks = [
             TransformerEncoderBlock(embed_dim, num_heads, mlp_ratio, name=f"block{i}")
@@ -99,7 +135,9 @@ class SatMAEEncoder(keras.Model):
             tokens, mask, ids_restore = MaskingLayer(mask_ratio)(tokens)
 
         B = ops.shape(tokens)[0]
-        cls = ops.broadcast_to(self.cls_token + self.pos_embed[None, :1, :], (B, 1, self.embed_dim))
+        cls = ops.broadcast_to(
+            self.cls_token + self.pos_embed[None, :1, :], (B, 1, self.embed_dim)
+        )
         tokens = ops.concatenate([cls, tokens], axis=1)
 
         for blk in self.blocks:
@@ -113,15 +151,29 @@ class SatMAEEncoder(keras.Model):
 
 class SatMAEDecoder(keras.Model):
 
-    def __init__(self, num_patches, patch_size, in_chans, decoder_embed_dim=512,
-                 decoder_depth=8, decoder_num_heads=16, encoder_embed_dim=768,
-                 num_repeats=1, name="satmae_decoder", **kwargs):
+    def __init__(
+        self,
+        num_patches,
+        patch_size,
+        in_chans,
+        decoder_embed_dim=512,
+        decoder_depth=8,
+        decoder_num_heads=16,
+        encoder_embed_dim=768,
+        num_repeats=1,
+        name="satmae_decoder",
+        **kwargs,
+    ):
         super().__init__(name=name, **kwargs)
         self.decoder_embed = layers.Dense(decoder_embed_dim, name="decoder_embed")
-        self.mask_token = self.add_weight(shape=(1, 1, decoder_embed_dim), initializer="zeros",
-                                           trainable=True, name="mask_token")
+        self.mask_token = self.add_weight(
+            shape=(1, 1, decoder_embed_dim),
+            initializer="zeros",
+            trainable=True,
+            name="mask_token",
+        )
         base_patches = num_patches // num_repeats
-        grid_size = int(round(base_patches ** 0.5))
+        grid_size = int(round(base_patches**0.5))
         if grid_size * grid_size != base_patches:
             raise ValueError(
                 f"num_patches // num_repeats ({base_patches}) is not a perfect square; "
@@ -129,12 +181,19 @@ class SatMAEDecoder(keras.Model):
             )
         base_pos = sincos_position_embedding_2d(grid_size, grid_size, decoder_embed_dim)
         pos = np.tile(base_pos, (num_repeats, 1))
-        pos = np.concatenate([np.zeros((1, decoder_embed_dim), dtype=np.float32), pos], axis=0)
+        pos = np.concatenate(
+            [np.zeros((1, decoder_embed_dim), dtype=np.float32), pos], axis=0
+        )
         self.decoder_pos_embed = self.add_weight(
-            shape=pos.shape, initializer=keras.initializers.Constant(pos),
-            trainable=False, name="decoder_pos_embed")
+            shape=pos.shape,
+            initializer=keras.initializers.Constant(pos),
+            trainable=False,
+            name="decoder_pos_embed",
+        )
         self.blocks = [
-            TransformerEncoderBlock(decoder_embed_dim, decoder_num_heads, name=f"block{i}")
+            TransformerEncoderBlock(
+                decoder_embed_dim, decoder_num_heads, name=f"block{i}"
+            )
             for i in range(decoder_depth)
         ]
         self.norm = layers.LayerNormalization(epsilon=1e-6, name="norm")
@@ -158,9 +217,22 @@ class SatMAEDecoder(keras.Model):
         return x[:, 1:, :]
 
 
-def SatMAE(img_size=224, patch_size=16, in_chans=3, embed_dim=768, depth=12,
-           num_heads=12, decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-           mode="single", num_groups=3, num_frames=3, mask_ratio=0.75, name="satmae"):
+def SatMAE(
+    img_size=224,
+    patch_size=16,
+    in_chans=3,
+    embed_dim=768,
+    depth=12,
+    num_heads=12,
+    decoder_embed_dim=512,
+    decoder_depth=8,
+    decoder_num_heads=16,
+    mode="single",
+    num_groups=3,
+    num_frames=3,
+    mask_ratio=0.75,
+    name="satmae",
+):
     if mode == "single":
         inp_shape = (img_size, img_size, in_chans)
     elif mode == "multispectral":
@@ -169,10 +241,21 @@ def SatMAE(img_size=224, patch_size=16, in_chans=3, embed_dim=768, depth=12,
         inp_shape = (num_frames, img_size, img_size, in_chans)
 
     inputs = keras.Input(shape=inp_shape, name="image")
-    encoder = SatMAEEncoder(img_size, patch_size, in_chans, embed_dim, depth, num_heads,
-                             mode=mode, num_groups=num_groups, num_frames=num_frames,
-                             name=f"{name}_encoder")
-    tokens, mask, ids_restore = encoder(inputs, apply_masking=True, mask_ratio=mask_ratio)
+    encoder = SatMAEEncoder(
+        img_size,
+        patch_size,
+        in_chans,
+        embed_dim,
+        depth,
+        num_heads,
+        mode=mode,
+        num_groups=num_groups,
+        num_frames=num_frames,
+        name=f"{name}_encoder",
+    )
+    tokens, mask, ids_restore = encoder(
+        inputs, apply_masking=True, mask_ratio=mask_ratio
+    )
 
     num_patches = (img_size // patch_size) ** 2
     num_repeats = 1
@@ -182,9 +265,17 @@ def SatMAE(img_size=224, patch_size=16, in_chans=3, embed_dim=768, depth=12,
         num_repeats = num_frames
     num_patches *= num_repeats
 
-    decoder = SatMAEDecoder(num_patches, patch_size, in_chans, decoder_embed_dim,
-                             decoder_depth, decoder_num_heads, embed_dim,
-                             num_repeats=num_repeats, name=f"{name}_decoder")
+    decoder = SatMAEDecoder(
+        num_patches,
+        patch_size,
+        in_chans,
+        decoder_embed_dim,
+        decoder_depth,
+        decoder_num_heads,
+        embed_dim,
+        num_repeats=num_repeats,
+        name=f"{name}_decoder",
+    )
     pred = decoder(tokens, ids_restore)
 
     return keras.Model(inputs, [pred, mask], name=name)

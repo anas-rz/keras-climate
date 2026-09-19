@@ -15,13 +15,15 @@ def get_2d_alibi(num_heads, grid_size):
     def get_slopes(n):
         def get_slopes_power_of_2(n):
             start = 2.0 ** (-(2.0 ** -(math.log2(n) - 3)))
-            return [start * start ** i for i in range(n)]
+            return [start * start**i for i in range(n)]
 
         if math.log2(n).is_integer():
             return get_slopes_power_of_2(n)
         closest_power_of_2 = 2 ** math.floor(math.log2(n))
-        return (get_slopes_power_of_2(closest_power_of_2)
-                + get_slopes(2 * closest_power_of_2)[0::2][: n - closest_power_of_2])
+        return (
+            get_slopes_power_of_2(closest_power_of_2)
+            + get_slopes(2 * closest_power_of_2)[0::2][: n - closest_power_of_2]
+        )
 
     slopes = np.array(get_slopes(num_heads), dtype=np.float64)[:, None]
     idxs = []
@@ -40,7 +42,7 @@ class CromaAttention(layers.Layer):
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
 
     def build(self, input_shape):
         self.input_norm = layers.LayerNormalization(epsilon=_LN_EPS, name="input_norm")
@@ -52,7 +54,9 @@ class CromaAttention(layers.Layer):
         x = self.input_norm(x)
         B, N = ops.shape(x)[0], ops.shape(x)[1]
         qkv = self.to_qkv(x)
-        qkv = ops.transpose(ops.reshape(qkv, (B, N, 3, self.num_heads, self.head_dim)), (2, 0, 3, 1, 4))
+        qkv = ops.transpose(
+            ops.reshape(qkv, (B, N, 3, self.num_heads, self.head_dim)), (2, 0, 3, 1, 4)
+        )
         q, k, v = qkv[0], qkv[1], qkv[2]
         attn = ops.matmul(q, ops.transpose(k, (0, 1, 3, 2))) * self.scale + attn_bias
         attn = ops.softmax(attn, axis=-1)
@@ -68,7 +72,7 @@ class CromaCrossAttention(layers.Layer):
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
 
     def build(self, input_shape):
         self.input_norm = layers.LayerNormalization(epsilon=_LN_EPS, name="input_norm")
@@ -85,7 +89,9 @@ class CromaCrossAttention(layers.Layer):
         Nc = ops.shape(cn)[1]
 
         def split_heads(t, n):
-            return ops.transpose(ops.reshape(t, (B, n, self.num_heads, self.head_dim)), (0, 2, 1, 3))
+            return ops.transpose(
+                ops.reshape(t, (B, n, self.num_heads, self.head_dim)), (0, 2, 1, 3)
+            )
 
         q = split_heads(self.to_q(xn), N)
         k = split_heads(self.to_k(cn), Nc)
@@ -147,13 +153,25 @@ class CromaCrossBlock(layers.Layer):
 
 class ModalityEncoder(keras.Model):
 
-    def __init__(self, dim=768, depth=12, in_chans=2, patch_size=8, num_heads=16,
-                 mlp_mult=4, name="modality_encoder", **kwargs):
+    def __init__(
+        self,
+        dim=768,
+        depth=12,
+        in_chans=2,
+        patch_size=8,
+        num_heads=16,
+        mlp_mult=4,
+        name="modality_encoder",
+        **kwargs,
+    ):
         super().__init__(name=name, **kwargs)
         self.dim = dim
         self.patch_size = patch_size
         self.linear_input = layers.Dense(dim, name="linear_input")
-        self.blocks = [CromaSelfBlock(dim, num_heads, mlp_mult, name=f"block{i}") for i in range(depth)]
+        self.blocks = [
+            CromaSelfBlock(dim, num_heads, mlp_mult, name=f"block{i}")
+            for i in range(depth)
+        ]
         self.norm_out = layers.LayerNormalization(epsilon=_LN_EPS, name="norm_out")
 
     def call(self, imgs, attn_bias, training=False):
@@ -173,19 +191,27 @@ class ModalityEncoder(keras.Model):
 
 
 def gap_ffn(dim, name):
-    return keras.Sequential([
-        layers.LayerNormalization(epsilon=_LN_EPS, name="norm"),
-        layers.Dense(int(4 * dim), name="fc1"),
-        layers.Activation("gelu", name="gelu"),
-        layers.Dense(dim, name="fc2"),
-    ], name=name)
+    return keras.Sequential(
+        [
+            layers.LayerNormalization(epsilon=_LN_EPS, name="norm"),
+            layers.Dense(int(4 * dim), name="fc1"),
+            layers.Activation("gelu", name="gelu"),
+            layers.Dense(dim, name="fc2"),
+        ],
+        name=name,
+    )
 
 
 class CrossAttentionFusion(keras.Model):
 
-    def __init__(self, dim, num_heads=16, depth=6, mlp_mult=4, name="cross_encoder", **kwargs):
+    def __init__(
+        self, dim, num_heads=16, depth=6, mlp_mult=4, name="cross_encoder", **kwargs
+    ):
         super().__init__(name=name, **kwargs)
-        self.blocks = [CromaCrossBlock(dim, num_heads, mlp_mult, name=f"block{i}") for i in range(depth)]
+        self.blocks = [
+            CromaCrossBlock(dim, num_heads, mlp_mult, name=f"block{i}")
+            for i in range(depth)
+        ]
         self.norm_out = layers.LayerNormalization(epsilon=_LN_EPS, name="norm_out")
 
     def call(self, x, context, attn_bias, training=False):
@@ -212,8 +238,12 @@ def CROMA(
 
     attn_bias = ops.convert_to_tensor(attn_bias_np)
 
-    sar_encoder = ModalityEncoder(dim, depth // 2, sar_chans, patch_size, num_heads, name="s1_encoder")
-    opt_encoder = ModalityEncoder(dim, depth, optical_chans, patch_size, num_heads, name="s2_encoder")
+    sar_encoder = ModalityEncoder(
+        dim, depth // 2, sar_chans, patch_size, num_heads, name="s1_encoder"
+    )
+    opt_encoder = ModalityEncoder(
+        dim, depth, optical_chans, patch_size, num_heads, name="s2_encoder"
+    )
 
     sar_tokens = sar_encoder(sar_in, attn_bias)
     opt_tokens = opt_encoder(opt_in, attn_bias)

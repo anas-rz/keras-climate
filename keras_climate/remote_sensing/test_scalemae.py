@@ -2,13 +2,19 @@ import numpy as np
 import pytest
 import keras
 
-from keras_climate.remote_sensing.scalemae import ScaleMAE, ScaleMAEEncoder, GSDPositionalEmbedding
+from keras_climate.remote_sensing.scalemae import (
+    ScaleMAE,
+    ScaleMAEEncoder,
+    GSDPositionalEmbedding,
+)
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_scalemae_mapper
 
 
 def test_builds_and_runs():
-    model = ScaleMAE(img_size=64, patch_size=16, in_chans=3, embed_dim=32, depth=2, num_heads=4)
+    model = ScaleMAE(
+        img_size=64, patch_size=16, in_chans=3, embed_dim=32, depth=2, num_heads=4
+    )
     x = np.random.randn(2, 64, 64, 3).astype("float32")
     res = np.array([0.3, 1.5], dtype="float32")
     tokens = keras.ops.convert_to_numpy(model([x, res]))
@@ -43,11 +49,15 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.proj = nn.Linear(dim, dim)
             self.num_heads = num_heads
             self.head_dim = dim // num_heads
-            self.scale = self.head_dim ** -0.5
+            self.scale = self.head_dim**-0.5
 
         def forward(self, x):
             B, N, C = x.shape
-            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            qkv = (
+                self.qkv(x)
+                .reshape(B, N, 3, self.num_heads, self.head_dim)
+                .permute(2, 0, 3, 1, 4)
+            )
             q, k, v = qkv[0], qkv[1], qkv[2]
             attn = (q @ k.transpose(-2, -1)) * self.scale
             attn = attn.softmax(dim=-1)
@@ -77,8 +87,11 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return x
 
     def gsd_pos_embed(grid_size, dim, res):
-        grid_h, grid_w = np.meshgrid(np.arange(grid_size, dtype=np.float32),
-                                      np.arange(grid_size, dtype=np.float32), indexing="ij")
+        grid_h, grid_w = np.meshgrid(
+            np.arange(grid_size, dtype=np.float32),
+            np.arange(grid_size, dtype=np.float32),
+            indexing="ij",
+        )
         grid_h, grid_w = grid_h.reshape(-1), grid_w.reshape(-1)
         omega = 1.0 / (10000 ** (np.arange(dim // 4, dtype=np.float32) / (dim / 4.0)))
 
@@ -98,10 +111,13 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.grid_size = img_size // patch_size
             self.embed_dim = embed_dim
             self.patch_embed = nn.Module()
-            self.patch_embed.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size,
-                                               stride=patch_size)
+            self.patch_embed.proj = nn.Conv2d(
+                in_chans, embed_dim, kernel_size=patch_size, stride=patch_size
+            )
             self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-            self.blocks = nn.ModuleList([ViTBlock(embed_dim, num_heads) for _ in range(depth)])
+            self.blocks = nn.ModuleList(
+                [ViTBlock(embed_dim, num_heads) for _ in range(depth)]
+            )
             self.norm = nn.LayerNorm(embed_dim, eps=1e-6)
 
         def forward(self, x, res):
@@ -126,12 +142,25 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     state_dict = {k: v.detach().numpy() for k, v in torch_model.state_dict().items()}
 
-    encoder = ScaleMAEEncoder(img_size=img, patch_size=patch, in_chans=in_chans, embed_dim=embed,
-                               depth=depth, num_heads=heads)
-    encoder([np.zeros((1, img, img, in_chans), dtype="float32"), np.zeros((1,), dtype="float32")])
+    encoder = ScaleMAEEncoder(
+        img_size=img,
+        patch_size=patch,
+        in_chans=in_chans,
+        embed_dim=embed,
+        depth=depth,
+        num_heads=heads,
+    )
+    encoder(
+        [
+            np.zeros((1, img, img, in_chans), dtype="float32"),
+            np.zeros((1,), dtype="float32"),
+        ]
+    )
 
     mapper = build_scalemae_mapper()
-    report = WeightConverter(encoder, state_dict, mapper).convert(strict=False, verbose=False)
+    report = WeightConverter(encoder, state_dict, mapper).convert(
+        strict=False, verbose=False
+    )
     assert set(report["missing_in_source"]) == {
         "scalemae_encoder/pos_embed/grid_h",
         "scalemae_encoder/pos_embed/grid_w",
@@ -148,7 +177,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_out = keras.ops.convert_to_numpy(encoder([keras_in, res_np], training=False))
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-2, f"ScaleMAE weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-2
+    ), f"ScaleMAE weight port numerical mismatch: max abs diff {max_diff}"
 
 
 @pytest.mark.pretrained

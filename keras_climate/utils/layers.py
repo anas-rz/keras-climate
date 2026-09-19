@@ -60,7 +60,11 @@ class GatedResidualNetwork(layers.Layer):
         self.dropout = dropout
 
     def build(self, input_shape):
-        self.skip = layers.Dense(self.units, name="skip") if input_shape[-1] != self.units else None
+        self.skip = (
+            layers.Dense(self.units, name="skip")
+            if input_shape[-1] != self.units
+            else None
+        )
         self.fc1 = layers.Dense(self.units, activation="elu", name="fc1")
         self.fc2 = layers.Dense(self.units, name="fc2")
         self.drop = layers.Dropout(self.dropout)
@@ -81,12 +85,14 @@ class GatedResidualNetwork(layers.Layer):
 
 class MultiHeadSelfAttention(layers.Layer):
 
-    def __init__(self, dim, num_heads=8, qkv_bias=True, attn_drop=0.0, proj_drop=0.0, **kwargs):
+    def __init__(
+        self, dim, num_heads=8, qkv_bias=True, attn_drop=0.0, proj_drop=0.0, **kwargs
+    ):
         super().__init__(**kwargs)
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
         self.qkv_bias = qkv_bias
         self.attn_drop_rate = attn_drop
         self.proj_drop_rate = proj_drop
@@ -119,12 +125,21 @@ class MultiHeadSelfAttention(layers.Layer):
 
 class SpatialReductionAttention(layers.Layer):
 
-    def __init__(self, dim, num_heads=8, sr_ratio=1, qkv_bias=True, attn_drop=0.0, proj_drop=0.0, **kwargs):
+    def __init__(
+        self,
+        dim,
+        num_heads=8,
+        sr_ratio=1,
+        qkv_bias=True,
+        attn_drop=0.0,
+        proj_drop=0.0,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
         self.sr_ratio = sr_ratio
         self.qkv_bias = qkv_bias
         self.attn_drop_rate = attn_drop
@@ -134,8 +149,9 @@ class SpatialReductionAttention(layers.Layer):
         self.q = layers.Dense(self.dim, use_bias=self.qkv_bias, name="q")
         self.kv = layers.Dense(self.dim * 2, use_bias=self.qkv_bias, name="kv")
         if self.sr_ratio > 1:
-            self.sr = layers.Conv2D(self.dim, kernel_size=self.sr_ratio,
-                                     strides=self.sr_ratio, name="sr")
+            self.sr = layers.Conv2D(
+                self.dim, kernel_size=self.sr_ratio, strides=self.sr_ratio, name="sr"
+            )
             self.norm = layers.LayerNormalization(name="sr_norm")
         self.attn_drop = layers.Dropout(self.attn_drop_rate)
         self.proj = layers.Dense(self.dim, name="proj")
@@ -177,29 +193,54 @@ class SpatialReductionAttention(layers.Layer):
 
 class TransformerEncoderBlock(layers.Layer):
 
-    def __init__(self, dim, num_heads, mlp_ratio=4.0, qkv_bias=True,
-                 drop=0.0, attn_drop=0.0, drop_path=0.0, **kwargs):
+    def __init__(
+        self,
+        dim,
+        num_heads,
+        mlp_ratio=4.0,
+        qkv_bias=True,
+        drop=0.0,
+        attn_drop=0.0,
+        drop_path=0.0,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.norm1 = layers.LayerNormalization(epsilon=1e-6, name="norm1")
-        self.attn = MultiHeadSelfAttention(dim, num_heads, qkv_bias, attn_drop, drop, name="attn")
+        self.attn = MultiHeadSelfAttention(
+            dim, num_heads, qkv_bias, attn_drop, drop, name="attn"
+        )
         self.drop_path = DropPath(drop_path)
         self.norm2 = layers.LayerNormalization(epsilon=1e-6, name="norm2")
         self.mlp = MLP(int(dim * mlp_ratio), dim, drop=drop, name="mlp")
 
     def call(self, x, training=False):
-        x = x + self.drop_path(self.attn(self.norm1(x), training=training), training=training)
-        x = x + self.drop_path(self.mlp(self.norm2(x), training=training), training=training)
+        x = x + self.drop_path(
+            self.attn(self.norm1(x), training=training), training=training
+        )
+        x = x + self.drop_path(
+            self.mlp(self.norm2(x), training=training), training=training
+        )
         return x
 
 
 class SegformerBlock(layers.Layer):
 
-    def __init__(self, dim, num_heads, mlp_ratio=4.0, sr_ratio=1, drop=0.0,
-                 attn_drop=0.0, drop_path=0.0, **kwargs):
+    def __init__(
+        self,
+        dim,
+        num_heads,
+        mlp_ratio=4.0,
+        sr_ratio=1,
+        drop=0.0,
+        attn_drop=0.0,
+        drop_path=0.0,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.norm1 = layers.LayerNormalization(epsilon=1e-6, name="norm1")
-        self.attn = SpatialReductionAttention(dim, num_heads, sr_ratio, attn_drop=attn_drop,
-                                               proj_drop=drop, name="attn")
+        self.attn = SpatialReductionAttention(
+            dim, num_heads, sr_ratio, attn_drop=attn_drop, proj_drop=drop, name="attn"
+        )
         self.drop_path = DropPath(drop_path)
         self.norm2 = layers.LayerNormalization(epsilon=1e-6, name="norm2")
         hidden = int(dim * mlp_ratio)
@@ -210,7 +251,9 @@ class SegformerBlock(layers.Layer):
         self.drop = layers.Dropout(drop)
 
     def call(self, x, H, W, training=False):
-        x = x + self.drop_path(self.attn(self.norm1(x), H=H, W=W, training=training), training=training)
+        x = x + self.drop_path(
+            self.attn(self.norm1(x), H=H, W=W, training=training), training=training
+        )
 
         y = self.norm2(x)
         y = self.fc1(y)
@@ -235,9 +278,17 @@ class PatchEmbed2D(layers.Layer):
         self.use_norm = norm
 
     def build(self, input_shape):
-        self.proj = layers.Conv2D(self.embed_dim, kernel_size=self.patch_size,
-                                   strides=self.patch_size, name="proj")
-        self.norm = layers.LayerNormalization(epsilon=1e-6, name="norm") if self.use_norm else None
+        self.proj = layers.Conv2D(
+            self.embed_dim,
+            kernel_size=self.patch_size,
+            strides=self.patch_size,
+            name="proj",
+        )
+        self.norm = (
+            layers.LayerNormalization(epsilon=1e-6, name="norm")
+            if self.use_norm
+            else None
+        )
         super().build(input_shape)
 
     def call(self, x):
@@ -260,8 +311,13 @@ class OverlapPatchEmbed(layers.Layer):
     def build(self, input_shape):
         pad = self.patch_size // 2
         self.pad = layers.ZeroPadding2D(pad, name="pad") if pad > 0 else None
-        self.proj = layers.Conv2D(self.embed_dim, kernel_size=self.patch_size,
-                                   strides=self.stride, padding="valid", name="proj")
+        self.proj = layers.Conv2D(
+            self.embed_dim,
+            kernel_size=self.patch_size,
+            strides=self.stride,
+            padding="valid",
+            name="proj",
+        )
         self.norm = layers.LayerNormalization(epsilon=1e-6, name="norm")
         super().build(input_shape)
 
@@ -338,7 +394,9 @@ def unpatchify_2d(x, grid_h, grid_w, patch_size, out_channels, name="unpatchify"
         t = ops.transpose(t, (0, 1, 3, 2, 4, 5))
         return ops.reshape(t, (B, out_h, out_w, out_channels))
 
-    return layers.Lambda(_unpatchify, output_shape=(out_h, out_w, out_channels), name=name)(x)
+    return layers.Lambda(
+        _unpatchify, output_shape=(out_h, out_w, out_channels), name=name
+    )(x)
 
 
 def sincos_position_embedding(length, dim):
@@ -359,7 +417,7 @@ def sincos_position_embedding_2d(h, w, dim):
 
     def embed_1d(pos, d):
         omega = np.arange(d // 2, dtype=np.float32) / (d / 2.0)
-        omega = 1.0 / (10000 ** omega)
+        omega = 1.0 / (10000**omega)
         pos = pos.reshape(-1)
         out = np.einsum("m,d->md", pos, omega)
         return np.concatenate([np.sin(out), np.cos(out)], axis=1)
@@ -370,8 +428,16 @@ def sincos_position_embedding_2d(h, w, dim):
 
 
 class ConvBNAct(layers.Layer):
-    def __init__(self, filters, kernel_size=3, strides=1, dilation_rate=1,
-                 act="relu", use_bn=True, **kwargs):
+    def __init__(
+        self,
+        filters,
+        kernel_size=3,
+        strides=1,
+        dilation_rate=1,
+        act="relu",
+        use_bn=True,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         # Keras's `padding="same"` pads *asymmetrically* (extra on the
         # bottom/right) whenever `strides > 1` and the input size isn't an
@@ -390,8 +456,15 @@ class ConvBNAct(layers.Layer):
         else:
             self.pad = None
             conv_padding = "same"
-        self.conv = layers.Conv2D(filters, kernel_size, strides=strides, padding=conv_padding,
-                                   dilation_rate=dilation_rate, use_bias=not use_bn, name="conv")
+        self.conv = layers.Conv2D(
+            filters,
+            kernel_size,
+            strides=strides,
+            padding=conv_padding,
+            dilation_rate=dilation_rate,
+            use_bias=not use_bn,
+            name="conv",
+        )
         self.bn = layers.BatchNormalization(epsilon=1e-5, name="bn") if use_bn else None
         self.act = layers.Activation(act) if act else None
 
@@ -428,8 +501,10 @@ class ASPP(layers.Layer):
 
     def build(self, input_shape):
         self.branch1 = ConvBNAct(self.filters, 1, name="b0")
-        self.branches = [ConvBNAct(self.filters, 3, dilation_rate=r, name=f"b{r}")
-                          for r in self.rates]
+        self.branches = [
+            ConvBNAct(self.filters, 3, dilation_rate=r, name=f"b{r}")
+            for r in self.rates
+        ]
         self.pool = layers.GlobalAveragePooling2D(keepdims=True)
         self.pool_conv = ConvBNAct(self.filters, 1, name="pool_conv")
         self.project = ConvBNAct(self.filters, 1, name="project")

@@ -1,6 +1,8 @@
 import re
 
-from keras_climate.weights.mappings.deeplabv3plus_mapping import build_resnet_backbone_mapper
+from keras_climate.weights.mappings.deeplabv3plus_mapping import (
+    build_resnet_backbone_mapper,
+)
 
 
 def build_ssl4eo_mapper(keras_prefix="backbone", layer_counts=(3, 4, 6, 3)):

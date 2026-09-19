@@ -22,7 +22,9 @@ def _block_rules(torch_stage_prefix, keras_stage_prefix, depth):
     return rules
 
 
-def build_earthformer_mapper(num_enc_stages, num_dec_stages, enc_depths=None, dec_depths=None):
+def build_earthformer_mapper(
+    num_enc_stages, num_dec_stages, enc_depths=None, dec_depths=None
+):
     enc_depths = enc_depths or [1] * num_enc_stages
     dec_depths = dec_depths or [1] * num_dec_stages
 

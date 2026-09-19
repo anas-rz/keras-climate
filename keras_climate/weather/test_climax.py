@@ -2,14 +2,25 @@ import numpy as np
 import pytest
 import keras
 
-from keras_climate.weather.climax import ClimaX, MultiVariablePatchEmbed, VariableAggregation
+from keras_climate.weather.climax import (
+    ClimaX,
+    MultiVariablePatchEmbed,
+    VariableAggregation,
+)
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_climax_mapper
 
 
 def test_builds_and_runs():
-    model = ClimaX(img_size=(16, 32), patch_size=4, num_vars=3, embed_dim=16, depth=2,
-                    decoder_depth=1, num_heads=4)
+    model = ClimaX(
+        img_size=(16, 32),
+        patch_size=4,
+        num_vars=3,
+        embed_dim=16,
+        depth=2,
+        decoder_depth=1,
+        num_heads=4,
+    )
     fields = np.random.randn(2, 16, 32, 3).astype("float32")
     lead_time = np.array([[1.0], [2.0]], dtype="float32")
     y = keras.ops.convert_to_numpy(model([fields, lead_time]))
@@ -52,11 +63,15 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.proj = nn.Linear(dim, dim)
             self.num_heads = num_heads
             self.head_dim = dim // num_heads
-            self.scale = self.head_dim ** -0.5
+            self.scale = self.head_dim**-0.5
 
         def forward(self, x):
             B, N, C = x.shape
-            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            qkv = (
+                self.qkv(x)
+                .reshape(B, N, 3, self.num_heads, self.head_dim)
+                .permute(2, 0, 3, 1, 4)
+            )
             q, k, v = qkv[0], qkv[1], qkv[2]
             attn = (q @ k.transpose(-2, -1) * self.scale).softmax(dim=-1)
             out = (attn @ v).transpose(1, 2).reshape(B, N, C)
@@ -85,33 +100,53 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return x
 
     class TorchClimaX(nn.Module):
-        def __init__(self, img_size, patch_size, num_vars, embed_dim, depth, decoder_depth, num_heads,
-                     mlp_ratio):
+        def __init__(
+            self,
+            img_size,
+            patch_size,
+            num_vars,
+            embed_dim,
+            depth,
+            decoder_depth,
+            num_heads,
+            mlp_ratio,
+        ):
             super().__init__()
             H, W = img_size
             grid_h, grid_w = H // patch_size, W // patch_size
             num_patches = grid_h * grid_w
-            self.grid_h, self.grid_w, self.patch_size, self.num_vars = grid_h, grid_w, patch_size, num_vars
+            self.grid_h, self.grid_w, self.patch_size, self.num_vars = (
+                grid_h,
+                grid_w,
+                patch_size,
+                num_vars,
+            )
 
             self.token_embeds = nn.ModuleList(
-                [TorchPatchEmbed(patch_size, embed_dim) for _ in range(num_vars)])
+                [TorchPatchEmbed(patch_size, embed_dim) for _ in range(num_vars)]
+            )
             self.channel_embed = nn.Parameter(torch.zeros(1, num_vars, embed_dim))
             self.channel_query = nn.Parameter(torch.zeros(1, 1, embed_dim))
-            self.channel_agg = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+            self.channel_agg = nn.MultiheadAttention(
+                embed_dim, num_heads, batch_first=True
+            )
             self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
             self.lead_time_embed = nn.Linear(1, embed_dim)
             self.blocks = nn.ModuleList(
-                [TorchBlock(embed_dim, num_heads, mlp_ratio) for _ in range(depth)])
+                [TorchBlock(embed_dim, num_heads, mlp_ratio) for _ in range(depth)]
+            )
             self.norm = nn.LayerNorm(embed_dim, eps=1e-6)
 
             head = []
             for _ in range(decoder_depth):
                 head += [nn.Linear(embed_dim, embed_dim), nn.GELU()]
-            head += [nn.Linear(embed_dim, num_vars * patch_size ** 2)]
+            head += [nn.Linear(embed_dim, num_vars * patch_size**2)]
             self.head = nn.Sequential(*head)
 
         def forward(self, fields, lead_time):
-            embeds = [self.token_embeds[v](fields[:, v:v + 1]) for v in range(self.num_vars)]
+            embeds = [
+                self.token_embeds[v](fields[:, v : v + 1]) for v in range(self.num_vars)
+            ]
             x = torch.stack(embeds, dim=1)
             x = x + self.channel_embed.unsqueeze(2)
 
@@ -140,8 +175,16 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     img_size, patch_size, num_vars = (16, 32), 4, 3
     embed_dim, depth, decoder_depth, num_heads, mlp_ratio = 16, 2, 1, 4, 4.0
 
-    torch_model = TorchClimaX(img_size, patch_size, num_vars, embed_dim, depth, decoder_depth,
-                               num_heads, mlp_ratio)
+    torch_model = TorchClimaX(
+        img_size,
+        patch_size,
+        num_vars,
+        embed_dim,
+        depth,
+        decoder_depth,
+        num_heads,
+        mlp_ratio,
+    )
     torch_model.eval()
     with torch.no_grad():
         for p in torch_model.parameters():
@@ -149,26 +192,42 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     state_dict = {k: v.detach().numpy() for k, v in torch_model.state_dict().items()}
 
-    keras_model = ClimaX(img_size=img_size, patch_size=patch_size, num_vars=num_vars,
-                          embed_dim=embed_dim, depth=depth, decoder_depth=decoder_depth,
-                          num_heads=num_heads, mlp_ratio=mlp_ratio)
+    keras_model = ClimaX(
+        img_size=img_size,
+        patch_size=patch_size,
+        num_vars=num_vars,
+        embed_dim=embed_dim,
+        depth=depth,
+        decoder_depth=decoder_depth,
+        num_heads=num_heads,
+        mlp_ratio=mlp_ratio,
+    )
 
-    mapper = build_climax_mapper(num_vars=num_vars, depth=depth, decoder_depth=decoder_depth)
-    report = WeightConverter(keras_model, state_dict, mapper).convert(strict=True, verbose=False)
+    mapper = build_climax_mapper(
+        num_vars=num_vars, depth=depth, decoder_depth=decoder_depth
+    )
+    report = WeightConverter(keras_model, state_dict, mapper).convert(
+        strict=True, verbose=False
+    )
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
     fields_np = np.random.randn(2, num_vars, *img_size).astype("float32")
     lead_time_np = np.array([[1.0], [3.0]], dtype="float32")
     with torch.no_grad():
-        torch_out = torch_model(torch.from_numpy(fields_np), torch.from_numpy(lead_time_np)).numpy()
+        torch_out = torch_model(
+            torch.from_numpy(fields_np), torch.from_numpy(lead_time_np)
+        ).numpy()
 
     fields_keras = np.transpose(fields_np, (0, 2, 3, 1))
     keras_out = keras.ops.convert_to_numpy(
-        keras_model([fields_keras, lead_time_np], training=False))
+        keras_model([fields_keras, lead_time_np], training=False)
+    )
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-2, f"ClimaX weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-2
+    ), f"ClimaX weight port numerical mismatch: max abs diff {max_diff}"
 
 
 @pytest.mark.pretrained

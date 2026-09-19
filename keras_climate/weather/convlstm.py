@@ -17,18 +17,30 @@ def ConvLSTMNowcaster(
     states = []
     for i, f in enumerate(filters):
         x, h, c = layers.ConvLSTM2D(
-            f, kernel_size, padding="same", return_sequences=True,
-            return_state=True, name=f"encoder_convlstm{i}",
+            f,
+            kernel_size,
+            padding="same",
+            return_sequences=True,
+            return_state=True,
+            name=f"encoder_convlstm{i}",
         )(x)
         x = layers.BatchNormalization(name=f"encoder_bn{i}")(x)
         states.append([h, c])
 
     decoder_convlstms = [
-        layers.ConvLSTM2D(f, kernel_size, padding="same", return_sequences=True,
-                           return_state=True, name=f"decoder_convlstm{i}")
+        layers.ConvLSTM2D(
+            f,
+            kernel_size,
+            padding="same",
+            return_sequences=True,
+            return_state=True,
+            name=f"decoder_convlstm{i}",
+        )
         for i, f in enumerate(filters)
     ]
-    decoder_bns = [layers.BatchNormalization(name=f"decoder_bn{i}") for i in range(len(filters))]
+    decoder_bns = [
+        layers.BatchNormalization(name=f"decoder_bn{i}") for i in range(len(filters))
+    ]
     head = layers.Conv3D(out_channels, 1, activation="sigmoid", name="frame_head")
 
     H, W = input_shape[1], input_shape[2]

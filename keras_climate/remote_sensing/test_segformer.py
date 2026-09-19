@@ -4,7 +4,10 @@ import keras
 
 from keras_climate.remote_sensing.segformer import SegFormer, MIT_CONFIGS
 from keras_climate.weights import WeightConverter
-from keras_climate.weights.mappings import build_segformer_mapper, build_segformer_param_kind_map
+from keras_climate.weights.mappings import (
+    build_segformer_mapper,
+    build_segformer_param_kind_map,
+)
 from keras_climate.weights.pretrained import segformer_b0_ade20k
 
 
@@ -24,8 +27,9 @@ def test_non_multiple_of_32_input_size():
 
 
 def test_final_activation_applied():
-    model = SegFormer(input_shape=(64, 64, 3), num_classes=1, variant="b0",
-                       final_activation="sigmoid")
+    model = SegFormer(
+        input_shape=(64, 64, 3), num_classes=1, variant="b0", final_activation="sigmoid"
+    )
     x = np.random.randn(1, 64, 64, 3).astype("float32")
     y = keras.ops.convert_to_numpy(model(x))
     assert y.min() >= 0.0 and y.max() <= 1.0
@@ -66,7 +70,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             super().__init__()
             self.num_heads = num_heads
             self.head_dim = dim // num_heads
-            self.scale = self.head_dim ** -0.5
+            self.scale = self.head_dim**-0.5
             self.sr_ratio = sr_ratio
             self.q = nn.Linear(dim, dim, bias=True)
             self.kv = nn.Linear(dim, dim * 2, bias=True)
@@ -77,14 +81,22 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
         def forward(self, x, H, W):
             B, N, C = x.shape
-            q = self.q(x).reshape(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+            q = (
+                self.q(x)
+                .reshape(B, N, self.num_heads, self.head_dim)
+                .permute(0, 2, 1, 3)
+            )
             if self.sr_ratio > 1:
                 x_ = x.permute(0, 2, 1).reshape(B, C, H, W)
                 x_ = self.sr(x_).reshape(B, C, -1).permute(0, 2, 1)
                 x_ = self.norm(x_)
             else:
                 x_ = x
-            kv = self.kv(x_).reshape(B, -1, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            kv = (
+                self.kv(x_)
+                .reshape(B, -1, 2, self.num_heads, self.head_dim)
+                .permute(2, 0, 3, 1, 4)
+            )
             k, v = kv[0], kv[1]
             attn = (q @ k.transpose(-2, -1)) * self.scale
             attn = attn.softmax(dim=-1)
@@ -107,8 +119,13 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     class OverlapPatchEmbed(nn.Module):
         def __init__(self, patch_size, stride, in_ch, embed_dim):
             super().__init__()
-            self.proj = nn.Conv2d(in_ch, embed_dim, kernel_size=patch_size, stride=stride,
-                                   padding=patch_size // 2)
+            self.proj = nn.Conv2d(
+                in_ch,
+                embed_dim,
+                kernel_size=patch_size,
+                stride=stride,
+                padding=patch_size // 2,
+            )
             self.norm = nn.LayerNorm(embed_dim)
 
         def forward(self, x):
@@ -126,12 +143,24 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             dims = cfg["embed_dims"]
             in_chs = [in_chans] + dims[:-1]
             for s in range(1, 5):
-                setattr(self, f"patch_embed{s}",
-                        OverlapPatchEmbed(patch_sizes[s - 1], strides[s - 1], in_chs[s - 1], dims[s - 1]))
-                blocks = nn.ModuleList([
-                    Block(dims[s - 1], cfg["num_heads"][s - 1], 4.0, cfg["sr_ratios"][s - 1])
-                    for _ in range(cfg["depths"][s - 1])
-                ])
+                setattr(
+                    self,
+                    f"patch_embed{s}",
+                    OverlapPatchEmbed(
+                        patch_sizes[s - 1], strides[s - 1], in_chs[s - 1], dims[s - 1]
+                    ),
+                )
+                blocks = nn.ModuleList(
+                    [
+                        Block(
+                            dims[s - 1],
+                            cfg["num_heads"][s - 1],
+                            4.0,
+                            cfg["sr_ratios"][s - 1],
+                        )
+                        for _ in range(cfg["depths"][s - 1])
+                    ]
+                )
                 setattr(self, f"block{s}", blocks)
                 setattr(self, f"norm{s}", nn.LayerNorm(dims[s - 1]))
 
@@ -169,7 +198,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.linear_c2 = MLPProj(dims[1], decoder_dim)
             self.linear_c1 = MLPProj(dims[0], decoder_dim)
             self.linear_fuse = nn.Module()
-            self.linear_fuse.conv = nn.Conv2d(decoder_dim * 4, decoder_dim, 1, bias=False)
+            self.linear_fuse.conv = nn.Conv2d(
+                decoder_dim * 4, decoder_dim, 1, bias=False
+            )
             self.linear_fuse.bn = nn.BatchNorm2d(decoder_dim, eps=1e-5)
             self.linear_pred = nn.Conv2d(decoder_dim, num_classes, 1)
 
@@ -182,7 +213,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
                 t = feat.flatten(2).transpose(1, 2)
                 t = layer.proj(t)
                 t = t.transpose(1, 2).reshape(B, -1, H, W)
-                return F.interpolate(t, size=(h4, w4), mode="bilinear", align_corners=False)
+                return F.interpolate(
+                    t, size=(h4, w4), mode="bilinear", align_corners=False
+                )
 
             p4 = proj_upsample(c4, self.linear_c4)
             p3 = proj_upsample(c3, self.linear_c3)
@@ -225,7 +258,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         if "num_batches_tracked" in k:
             continue
         if k.startswith("backbone."):
-            k = k[len("backbone."):]
+            k = k[len("backbone.") :]
         state_dict[k] = v.detach().numpy()
 
     keras_model = SegFormer(input_shape=(256, 256, 3), num_classes=5, variant="b0")
@@ -233,8 +266,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     mapper = build_segformer_mapper(cfg)
     param_kind_map = build_segformer_param_kind_map(cfg)
-    report = WeightConverter(keras_model, state_dict, mapper,
-                              param_kind_map=param_kind_map).convert(strict=True, verbose=False)
+    report = WeightConverter(
+        keras_model, state_dict, mapper, param_kind_map=param_kind_map
+    ).convert(strict=True, verbose=False)
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
@@ -247,7 +281,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_out = np.transpose(keras_out, (0, 3, 1, 2))
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-2, f"SegFormer weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-2
+    ), f"SegFormer weight port numerical mismatch: max abs diff {max_diff}"
 
 
 @pytest.mark.pretrained

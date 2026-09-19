@@ -27,7 +27,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     torch.manual_seed(0)
     torch_model = torchvision.models.resnet50(weights=None)
-    torch_model.conv1 = nn.Conv2d(13, 64, kernel_size=7, stride=2, padding=3, bias=False)
+    torch_model.conv1 = nn.Conv2d(
+        13, 64, kernel_size=7, stride=2, padding=3, bias=False
+    )
     torch_model.eval()
     with torch.no_grad():
         for m in torch_model.modules():
@@ -49,7 +51,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_model(np.zeros((1, 64, 64, 13), dtype="float32"))
 
     mapper = build_ssl4eo_mapper(layer_counts=(3, 4, 6, 3))
-    report = WeightConverter(keras_model, state_dict, mapper).convert(strict=True, verbose=False)
+    report = WeightConverter(keras_model, state_dict, mapper).convert(
+        strict=True, verbose=False
+    )
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
@@ -69,7 +73,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_out = np.transpose(keras_out, (0, 3, 1, 2))
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-2, f"SSL4EO weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-2
+    ), f"SSL4EO weight port numerical mismatch: max abs diff {max_diff}"
 
 
 @pytest.mark.pretrained

@@ -9,7 +9,7 @@ class AxialAttention2D(layers.Layer):
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
 
     def build(self, input_shape):
         self.row_qkv = layers.Dense(self.dim * 3, name="row_qkv")
@@ -26,7 +26,9 @@ class AxialAttention2D(layers.Layer):
         qkv = ops.reshape(qkv, (B_, L, 3, self.num_heads, self.head_dim))
         qkv = ops.transpose(qkv, (2, 0, 3, 1, 4))
         q, k, v = qkv[0], qkv[1], qkv[2]
-        attn = ops.softmax(ops.matmul(q, ops.transpose(k, (0, 1, 3, 2))) * self.scale, axis=-1)
+        attn = ops.softmax(
+            ops.matmul(q, ops.transpose(k, (0, 1, 3, 2))) * self.scale, axis=-1
+        )
         out = ops.matmul(attn, v)
         out = ops.transpose(out, (0, 2, 1, 3))
         out = ops.reshape(out, (B_, L, C))
@@ -55,7 +57,9 @@ class AxialAttention2D(layers.Layer):
 def _context_aggregating_cnn(x, filters, name):
     dilations = [1, 2, 4, 8, 16, 1]
     for i, d in enumerate(dilations):
-        x = layers.Conv2D(filters, 3, padding="same", dilation_rate=d, name=f"{name}_dconv{i}")(x)
+        x = layers.Conv2D(
+            filters, 3, padding="same", dilation_rate=d, name=f"{name}_dconv{i}"
+        )(x)
         x = layers.BatchNormalization(name=f"{name}_bn{i}")(x)
         x = layers.Activation("relu", name=f"{name}_relu{i}")(x)
     return x
@@ -78,19 +82,28 @@ def MetNet(
 
     x = layers.TimeDistributed(layers.ZeroPadding2D(1), name="stem_pad")(inputs)
     x = layers.TimeDistributed(
-        layers.Conv2D(base_filters, 3, strides=downsample_factor, padding="valid", name="conv"),
+        layers.Conv2D(
+            base_filters, 3, strides=downsample_factor, padding="valid", name="conv"
+        ),
         name="stem",
     )(x)
     x = layers.TimeDistributed(layers.BatchNormalization(name="bn"), name="stem_bn")(x)
-    x = layers.TimeDistributed(layers.Activation("relu", name="act"), name="stem_act")(x)
+    x = layers.TimeDistributed(layers.Activation("relu", name="act"), name="stem_act")(
+        x
+    )
 
-    x = layers.ConvLSTM2D(base_filters, 3, padding="same", return_sequences=False,
-                           name="temporal_encoder")(x)
+    x = layers.ConvLSTM2D(
+        base_filters, 3, padding="same", return_sequences=False, name="temporal_encoder"
+    )(x)
 
     x = _context_aggregating_cnn(x, base_filters * 2, name="context_tower")
 
-    lead_embed = layers.Embedding(lead_times, base_filters * 2, name="lead_time_embed")(lead_time_input)
-    lead_embed = layers.Reshape((1, 1, base_filters * 2), name="lead_time_reshape")(lead_embed)
+    lead_embed = layers.Embedding(lead_times, base_filters * 2, name="lead_time_embed")(
+        lead_time_input
+    )
+    lead_embed = layers.Reshape((1, 1, base_filters * 2), name="lead_time_reshape")(
+        lead_embed
+    )
     x = layers.Add(name="add_lead_time")([x, lead_embed])
 
     x = layers.Conv2D(attn_dim, 1, name="attn_proj_in")(x)
@@ -98,8 +111,9 @@ def MetNet(
         x = AxialAttention2D(attn_dim, num_heads, name=f"axial_attn{i}")(x)
 
     for i in range(int(downsample_factor).bit_length() - 1):
-        x = layers.Conv2DTranspose(attn_dim // 2, 2, strides=2, padding="same",
-                                    name=f"upsample{i}")(x)
+        x = layers.Conv2DTranspose(
+            attn_dim // 2, 2, strides=2, padding="same", name=f"upsample{i}"
+        )(x)
         x = layers.BatchNormalization(name=f"upsample_bn{i}")(x)
         x = layers.Activation("relu", name=f"upsample_relu{i}")(x)
 

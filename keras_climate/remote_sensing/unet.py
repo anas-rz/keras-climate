@@ -26,14 +26,16 @@ def UNet(
 
     for i in reversed(range(depth)):
         filters //= 2
-        x = layers.Conv2DTranspose(filters, 2, strides=2, padding="same",
-                                    name=f"upconv{i}")(x)
+        x = layers.Conv2DTranspose(
+            filters, 2, strides=2, padding="same", name=f"upconv{i}"
+        )(x)
         skip = skips[i]
         x = layers.Concatenate(name=f"concat{i}")([skip, x])
         x = DoubleConv(filters, name=f"dec{i}")(x)
 
-    outputs = layers.Conv2D(num_classes, 1, activation=final_activation,
-                             name="logits")(x)
+    outputs = layers.Conv2D(num_classes, 1, activation=final_activation, name="logits")(
+        x
+    )
 
     return keras.Model(inputs, outputs, name=name)
 

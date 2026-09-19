@@ -3,13 +3,19 @@ import numpy as np
 import pytest
 import keras
 
-from keras_climate.remote_sensing.satclip import SatCLIPLocationEncoder, SphericalHarmonics, SirenLayer
+from keras_climate.remote_sensing.satclip import (
+    SatCLIPLocationEncoder,
+    SphericalHarmonics,
+    SirenLayer,
+)
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import build_satclip_location_mapper
 
 
 def test_builds_and_runs():
-    model = SatCLIPLocationEncoder(legendre_polys=10, dim_hidden=512, num_hidden_layers=2, embed_dim=256)
+    model = SatCLIPLocationEncoder(
+        legendre_polys=10, dim_hidden=512, num_hidden_layers=2, embed_dim=256
+    )
     lonlat = np.array([[2.35, 48.86], [-74.0, 40.7]], dtype="float32")
     out = keras.ops.convert_to_numpy(model(lonlat))
     assert out.shape == (2, 256)
@@ -36,8 +42,12 @@ def test_spherical_harmonics_matches_known_reference_values():
 
     assert np.isclose(yl0_m0, 0.886226925452758, atol=1e-5)
     assert np.isclose(yl1_m0, 1.53499006191973 * math.cos(theta), atol=1e-5)
-    assert np.isclose(yl1_m_minus1, 0.48860251190292 * math.sin(theta) * math.sin(phi), atol=1e-5)
-    assert np.isclose(yl1_m1, 0.48860251190292 * math.sin(theta) * math.cos(phi), atol=1e-5)
+    assert np.isclose(
+        yl1_m_minus1, 0.48860251190292 * math.sin(theta) * math.sin(phi), atol=1e-5
+    )
+    assert np.isclose(
+        yl1_m1, 0.48860251190292 * math.sin(theta) * math.cos(phi), atol=1e-5
+    )
 
 
 def test_siren_layer_first_layer_uses_higher_frequency():
@@ -64,13 +74,20 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return torch.sin(self.w0 * x) if self.use_sine else x
 
     class TorchSirenNet(nn.Module):
-        def __init__(self, in_dim, dim_hidden, num_hidden_layers, out_dim, w0_initial, w0):
+        def __init__(
+            self, in_dim, dim_hidden, num_hidden_layers, out_dim, w0_initial, w0
+        ):
             super().__init__()
-            self.layers = nn.ModuleList([
-                TorchSiren(in_dim if i == 0 else dim_hidden, dim_hidden,
-                           w0_initial if i == 0 else w0)
-                for i in range(num_hidden_layers)
-            ])
+            self.layers = nn.ModuleList(
+                [
+                    TorchSiren(
+                        in_dim if i == 0 else dim_hidden,
+                        dim_hidden,
+                        w0_initial if i == 0 else w0,
+                    )
+                    for i in range(num_hidden_layers)
+                ]
+            )
             self.last_layer = TorchSiren(dim_hidden, out_dim, w0, use_sine=False)
 
         def forward(self, x):
@@ -80,10 +97,11 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     torch.manual_seed(0)
     legendre_polys, dim_hidden, num_hidden_layers, embed_dim = 6, 32, 2, 16
-    in_dim = legendre_polys ** 2
+    in_dim = legendre_polys**2
 
-    torch_model = TorchSirenNet(in_dim, dim_hidden, num_hidden_layers, embed_dim,
-                                 w0_initial=30.0, w0=1.0)
+    torch_model = TorchSirenNet(
+        in_dim, dim_hidden, num_hidden_layers, embed_dim, w0_initial=30.0, w0=1.0
+    )
     torch_model.eval()
     with torch.no_grad():
         for p in torch_model.parameters():
@@ -91,16 +109,28 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     state_dict = {}
     for i, layer in enumerate(torch_model.layers):
-        state_dict[f"model.location.nnet.layers.{i}.weight"] = layer.weight.detach().numpy()
+        state_dict[f"model.location.nnet.layers.{i}.weight"] = (
+            layer.weight.detach().numpy()
+        )
         state_dict[f"model.location.nnet.layers.{i}.bias"] = layer.bias.detach().numpy()
-    state_dict["model.location.nnet.last_layer.weight"] = torch_model.last_layer.weight.detach().numpy()
-    state_dict["model.location.nnet.last_layer.bias"] = torch_model.last_layer.bias.detach().numpy()
+    state_dict["model.location.nnet.last_layer.weight"] = (
+        torch_model.last_layer.weight.detach().numpy()
+    )
+    state_dict["model.location.nnet.last_layer.bias"] = (
+        torch_model.last_layer.bias.detach().numpy()
+    )
 
-    keras_model = SatCLIPLocationEncoder(legendre_polys=legendre_polys, dim_hidden=dim_hidden,
-                                          num_hidden_layers=num_hidden_layers, embed_dim=embed_dim)
+    keras_model = SatCLIPLocationEncoder(
+        legendre_polys=legendre_polys,
+        dim_hidden=dim_hidden,
+        num_hidden_layers=num_hidden_layers,
+        embed_dim=embed_dim,
+    )
 
     mapper = build_satclip_location_mapper(num_hidden_layers=num_hidden_layers)
-    report = WeightConverter(keras_model, state_dict, mapper).convert(strict=True, verbose=False)
+    report = WeightConverter(keras_model, state_dict, mapper).convert(
+        strict=True, verbose=False
+    )
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
@@ -118,7 +148,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_out = keras.ops.convert_to_numpy(siren_only(x_np, training=False))
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-2, f"SatCLIP SirenNet weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-2
+    ), f"SatCLIP SirenNet weight port numerical mismatch: max abs diff {max_diff}"
 
 
 @pytest.mark.pretrained

@@ -13,7 +13,7 @@ def load_fourcastnet_checkpoint(path):
 def convert_fourcastnet_state_dict(flat_state_dict, grid_h, grid_w):
     out = {}
     for k, v in flat_state_dict.items():
-        k = k[len("module."):] if k.startswith("module.") else k
+        k = k[len("module.") :] if k.startswith("module.") else k
         if k == "pos_embed":
             v = v.reshape(1, grid_h, grid_w, v.shape[-1])
         out[k] = v

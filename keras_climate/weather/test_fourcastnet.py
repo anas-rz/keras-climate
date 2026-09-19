@@ -4,20 +4,37 @@ import keras
 
 from keras_climate.weather.fourcastnet import FourCastNet
 from keras_climate.weights import WeightConverter
-from keras_climate.weights.mappings import build_fourcastnet_mapper, convert_fourcastnet_state_dict
+from keras_climate.weights.mappings import (
+    build_fourcastnet_mapper,
+    convert_fourcastnet_state_dict,
+)
 
 
 def test_builds_and_runs():
-    model = FourCastNet(img_size=(32, 32), patch_size=4, in_chans=5, out_chans=5,
-                         embed_dim=16, depth=2, num_blocks=4)
+    model = FourCastNet(
+        img_size=(32, 32),
+        patch_size=4,
+        in_chans=5,
+        out_chans=5,
+        embed_dim=16,
+        depth=2,
+        num_blocks=4,
+    )
     x = np.random.randn(2, 32, 32, 5).astype("float32")
     y = keras.ops.convert_to_numpy(model(x))
     assert y.shape == (2, 32, 32, 5)
 
 
 def test_non_square_grid():
-    model = FourCastNet(img_size=(16, 32), patch_size=4, in_chans=3, out_chans=3,
-                         embed_dim=8, depth=1, num_blocks=2)
+    model = FourCastNet(
+        img_size=(16, 32),
+        patch_size=4,
+        in_chans=3,
+        out_chans=3,
+        embed_dim=8,
+        depth=1,
+        num_blocks=2,
+    )
     x = np.random.randn(1, 16, 32, 3).astype("float32")
     y = keras.ops.convert_to_numpy(model(x))
     assert y.shape == (1, 16, 32, 3)
@@ -49,17 +66,33 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             x_re = x_re.reshape(B, H, W // 2 + 1, self.num_blocks, self.block_size)
             x_im = x_im.reshape(B, H, W // 2 + 1, self.num_blocks, self.block_size)
 
-            o1_re = F.relu(torch.einsum("bhwnc,ncd->bhwnd", x_re, self.w1[0])
-                            - torch.einsum("bhwnc,ncd->bhwnd", x_im, self.w1[1]) + self.b1[0])
-            o1_im = F.relu(torch.einsum("bhwnc,ncd->bhwnd", x_im, self.w1[0])
-                            + torch.einsum("bhwnc,ncd->bhwnd", x_re, self.w1[1]) + self.b1[1])
-            o2_re = (torch.einsum("bhwnd,nde->bhwne", o1_re, self.w2[0])
-                      - torch.einsum("bhwnd,nde->bhwne", o1_im, self.w2[1]) + self.b2[0])
-            o2_im = (torch.einsum("bhwnd,nde->bhwne", o1_im, self.w2[0])
-                      + torch.einsum("bhwnd,nde->bhwne", o1_re, self.w2[1]) + self.b2[1])
-            o2_re, o2_im = o2_re.reshape(B, H, W // 2 + 1, C), o2_im.reshape(B, H, W // 2 + 1, C)
+            o1_re = F.relu(
+                torch.einsum("bhwnc,ncd->bhwnd", x_re, self.w1[0])
+                - torch.einsum("bhwnc,ncd->bhwnd", x_im, self.w1[1])
+                + self.b1[0]
+            )
+            o1_im = F.relu(
+                torch.einsum("bhwnc,ncd->bhwnd", x_im, self.w1[0])
+                + torch.einsum("bhwnc,ncd->bhwnd", x_re, self.w1[1])
+                + self.b1[1]
+            )
+            o2_re = (
+                torch.einsum("bhwnd,nde->bhwne", o1_re, self.w2[0])
+                - torch.einsum("bhwnd,nde->bhwne", o1_im, self.w2[1])
+                + self.b2[0]
+            )
+            o2_im = (
+                torch.einsum("bhwnd,nde->bhwne", o1_im, self.w2[0])
+                + torch.einsum("bhwnd,nde->bhwne", o1_re, self.w2[1])
+                + self.b2[1]
+            )
+            o2_re, o2_im = o2_re.reshape(B, H, W // 2 + 1, C), o2_im.reshape(
+                B, H, W // 2 + 1, C
+            )
 
-            stacked = F.softshrink(torch.stack([o2_re, o2_im], dim=-1), lambd=self.sparsity_threshold)
+            stacked = F.softshrink(
+                torch.stack([o2_re, o2_im], dim=-1), lambd=self.sparsity_threshold
+            )
             out = torch.view_as_complex(stacked)
             out = torch.fft.irfft2(out, s=(H, W), dim=(1, 2), norm="backward")
             return out + bias
@@ -87,19 +120,36 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return x
 
     class TorchFourCastNet(nn.Module):
-        def __init__(self, H, W, patch_size, in_chans, out_chans, embed_dim, depth,
-                     num_blocks, mlp_ratio):
+        def __init__(
+            self,
+            H,
+            W,
+            patch_size,
+            in_chans,
+            out_chans,
+            embed_dim,
+            depth,
+            num_blocks,
+            mlp_ratio,
+        ):
             super().__init__()
             self.patch_size = patch_size
             self.grid_h, self.grid_w = H // patch_size, W // patch_size
             self.out_chans = out_chans
             self.patch_embed = nn.Module()
-            self.patch_embed.proj = nn.Conv2d(in_chans, embed_dim, patch_size, stride=patch_size)
-            self.pos_embed = nn.Parameter(torch.zeros(1, self.grid_h * self.grid_w, embed_dim))
+            self.patch_embed.proj = nn.Conv2d(
+                in_chans, embed_dim, patch_size, stride=patch_size
+            )
+            self.pos_embed = nn.Parameter(
+                torch.zeros(1, self.grid_h * self.grid_w, embed_dim)
+            )
             self.blocks = nn.ModuleList(
-                [TorchAFNOBlock(embed_dim, num_blocks, mlp_ratio) for _ in range(depth)])
+                [TorchAFNOBlock(embed_dim, num_blocks, mlp_ratio) for _ in range(depth)]
+            )
             self.norm = nn.LayerNorm(embed_dim, eps=1e-6)
-            self.head = nn.Linear(embed_dim, patch_size * patch_size * out_chans, bias=False)
+            self.head = nn.Linear(
+                embed_dim, patch_size * patch_size * out_chans, bias=False
+            )
 
         def forward(self, x):
             x = self.patch_embed.proj(x).permute(0, 2, 3, 1)
@@ -118,23 +168,35 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     H, W, patch_size, in_chans, out_chans = 16, 16, 4, 3, 3
     embed_dim, depth, num_blocks, mlp_ratio = 16, 2, 4, 4.0
 
-    torch_model = TorchFourCastNet(H, W, patch_size, in_chans, out_chans, embed_dim, depth,
-                                    num_blocks, mlp_ratio)
+    torch_model = TorchFourCastNet(
+        H, W, patch_size, in_chans, out_chans, embed_dim, depth, num_blocks, mlp_ratio
+    )
     torch_model.eval()
     with torch.no_grad():
         for p in torch_model.parameters():
             p.normal_(0.0, 0.2)
 
-    raw_state_dict = {f"module.{k}": v.detach().numpy() for k, v in torch_model.state_dict().items()}
+    raw_state_dict = {
+        f"module.{k}": v.detach().numpy() for k, v in torch_model.state_dict().items()
+    }
     grid_h, grid_w = H // patch_size, W // patch_size
     state_dict = convert_fourcastnet_state_dict(raw_state_dict, grid_h, grid_w)
 
-    keras_model = FourCastNet(img_size=(H, W), patch_size=patch_size, in_chans=in_chans,
-                               out_chans=out_chans, embed_dim=embed_dim, depth=depth,
-                               num_blocks=num_blocks, mlp_ratio=mlp_ratio)
+    keras_model = FourCastNet(
+        img_size=(H, W),
+        patch_size=patch_size,
+        in_chans=in_chans,
+        out_chans=out_chans,
+        embed_dim=embed_dim,
+        depth=depth,
+        num_blocks=num_blocks,
+        mlp_ratio=mlp_ratio,
+    )
 
     mapper = build_fourcastnet_mapper(depth=depth)
-    report = WeightConverter(keras_model, state_dict, mapper).convert(strict=True, verbose=False)
+    report = WeightConverter(keras_model, state_dict, mapper).convert(
+        strict=True, verbose=False
+    )
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
@@ -146,7 +208,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_out = keras.ops.convert_to_numpy(keras_model(keras_in, training=False))
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-2, f"FourCastNet weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-2
+    ), f"FourCastNet weight port numerical mismatch: max abs diff {max_diff}"
 
 
 @pytest.mark.pretrained

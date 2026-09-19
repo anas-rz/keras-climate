@@ -44,14 +44,28 @@ class SphericalHarmonics(layers.Layer):
 
     @staticmethod
     def _norm(l, m):
-        return math.sqrt((2.0 * l + 1.0) * math.factorial(l - m) / (4.0 * math.pi * math.factorial(l + m)))
+        return math.sqrt(
+            (2.0 * l + 1.0)
+            * math.factorial(l - m)
+            / (4.0 * math.pi * math.factorial(l + m))
+        )
 
     def _sh(self, m, l, phi, x):
         if m == 0:
             return math.pi * self._norm(l, 0) * self._legendre(l, 0, x)
         if m > 0:
-            return math.sqrt(2.0) * self._norm(l, m) * ops.cos(m * phi) * self._legendre(l, m, x)
-        return math.sqrt(2.0) * self._norm(l, -m) * ops.sin(-m * phi) * self._legendre(l, -m, x)
+            return (
+                math.sqrt(2.0)
+                * self._norm(l, m)
+                * ops.cos(m * phi)
+                * self._legendre(l, m, x)
+            )
+        return (
+            math.sqrt(2.0)
+            * self._norm(l, -m)
+            * ops.sin(-m * phi)
+            * self._legendre(l, -m, x)
+        )
 
 
 class SirenLayer(layers.Layer):
@@ -64,8 +78,12 @@ class SirenLayer(layers.Layer):
 
     def build(self, input_shape):
         in_dim = input_shape[-1]
-        self.kernel = self.add_weight(shape=(in_dim, self.units), initializer="glorot_uniform", name="kernel")
-        self.bias = self.add_weight(shape=(self.units,), initializer="zeros", name="bias")
+        self.kernel = self.add_weight(
+            shape=(in_dim, self.units), initializer="glorot_uniform", name="kernel"
+        )
+        self.bias = self.add_weight(
+            shape=(self.units,), initializer="zeros", name="bias"
+        )
         super().build(input_shape)
 
     def call(self, x):
@@ -73,15 +91,25 @@ class SirenLayer(layers.Layer):
         return ops.sin(self.w0 * x) if self.use_sine else x
 
 
-def SatCLIPLocationEncoder(legendre_polys=10, dim_hidden=512, num_hidden_layers=2,
-                            embed_dim=256, w0_initial=30.0, w0=1.0,
-                            name="satclip_location_encoder"):
+def SatCLIPLocationEncoder(
+    legendre_polys=10,
+    dim_hidden=512,
+    num_hidden_layers=2,
+    embed_dim=256,
+    w0_initial=30.0,
+    w0=1.0,
+    name="satclip_location_encoder",
+):
     lonlat_in = keras.Input(shape=(2,), name="lonlat")
     x = SphericalHarmonics(legendre_polys, name="posenc")(lonlat_in)
 
     for i in range(num_hidden_layers):
-        x = SirenLayer(dim_hidden, w0=(w0_initial if i == 0 else w0), use_sine=True,
-                        name=f"layers{i}")(x)
+        x = SirenLayer(
+            dim_hidden,
+            w0=(w0_initial if i == 0 else w0),
+            use_sine=True,
+            name=f"layers{i}",
+        )(x)
     out = SirenLayer(embed_dim, w0=w0, use_sine=False, name="last_layer")(x)
 
     return keras.Model(lonlat_in, out, name=name)

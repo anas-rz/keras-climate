@@ -9,8 +9,18 @@ from keras_climate.weights.pretrained import satmae_vit_base_mae
 
 
 def test_single_mode_mae_pretraining_forward():
-    model = SatMAE(img_size=64, patch_size=16, in_chans=3, embed_dim=32, depth=2, num_heads=4,
-                   decoder_embed_dim=24, decoder_depth=2, decoder_num_heads=4, mode="single")
+    model = SatMAE(
+        img_size=64,
+        patch_size=16,
+        in_chans=3,
+        embed_dim=32,
+        depth=2,
+        num_heads=4,
+        decoder_embed_dim=24,
+        decoder_depth=2,
+        decoder_num_heads=4,
+        mode="single",
+    )
     x = np.random.randn(2, 64, 64, 3).astype("float32")
     pred, mask = model(x)
     num_patches = (64 // 16) ** 2
@@ -18,11 +28,23 @@ def test_single_mode_mae_pretraining_forward():
     assert tuple(mask.shape) == (2, num_patches)
 
 
-@pytest.mark.parametrize("mode,kwarg", [("multispectral", "num_groups"), ("temporal", "num_frames")])
+@pytest.mark.parametrize(
+    "mode,kwarg", [("multispectral", "num_groups"), ("temporal", "num_frames")]
+)
 def test_multi_group_modes_forward(mode, kwarg):
-    model = SatMAE(img_size=64, patch_size=16, in_chans=3, embed_dim=32, depth=2, num_heads=4,
-                   decoder_embed_dim=24, decoder_depth=2, decoder_num_heads=4,
-                   mode=mode, **{kwarg: 3})
+    model = SatMAE(
+        img_size=64,
+        patch_size=16,
+        in_chans=3,
+        embed_dim=32,
+        depth=2,
+        num_heads=4,
+        decoder_embed_dim=24,
+        decoder_depth=2,
+        decoder_num_heads=4,
+        mode=mode,
+        **{kwarg: 3},
+    )
     x = np.random.randn(2, 3, 64, 64, 3).astype("float32")
     pred, mask = model(x)
     num_patches = (64 // 16) ** 2 * 3
@@ -31,7 +53,9 @@ def test_multi_group_modes_forward(mode, kwarg):
 
 
 def test_encoder_alone_for_downstream_tasks():
-    encoder = SatMAEEncoder(img_size=64, patch_size=16, in_chans=3, embed_dim=32, depth=2, num_heads=4)
+    encoder = SatMAEEncoder(
+        img_size=64, patch_size=16, in_chans=3, embed_dim=32, depth=2, num_heads=4
+    )
     x = np.random.randn(2, 64, 64, 3).astype("float32")
     tokens = encoder(x)
     num_patches = (64 // 16) ** 2
@@ -45,7 +69,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     def sincos_pos_embed(grid_size, dim):
         def embed_1d(pos, d):
             omega = np.arange(d // 2, dtype=np.float32) / (d / 2.0)
-            omega = 1.0 / (10000 ** omega)
+            omega = 1.0 / (10000**omega)
             pos = pos.reshape(-1)
             out = np.einsum("m,d->md", pos, omega)
             return np.concatenate([np.sin(out), np.cos(out)], axis=1)
@@ -65,11 +89,15 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.proj = nn.Linear(dim, dim)
             self.num_heads = num_heads
             self.head_dim = dim // num_heads
-            self.scale = self.head_dim ** -0.5
+            self.scale = self.head_dim**-0.5
 
         def forward(self, x):
             B, N, C = x.shape
-            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            qkv = (
+                self.qkv(x)
+                .reshape(B, N, 3, self.num_heads, self.head_dim)
+                .permute(2, 0, 3, 1, 4)
+            )
             q, k, v = qkv[0], qkv[1], qkv[2]
             attn = (q @ k.transpose(-2, -1)) * self.scale
             attn = attn.softmax(dim=-1)
@@ -99,32 +127,58 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return x
 
     class TorchMAE(nn.Module):
-        def __init__(self, img_size, patch_size, in_chans, embed_dim, depth, num_heads,
-                     decoder_embed_dim, decoder_depth, decoder_num_heads):
+        def __init__(
+            self,
+            img_size,
+            patch_size,
+            in_chans,
+            embed_dim,
+            depth,
+            num_heads,
+            decoder_embed_dim,
+            decoder_depth,
+            decoder_num_heads,
+        ):
             super().__init__()
             grid = img_size // patch_size
             num_patches = grid * grid
 
             self.patch_embed = nn.Module()
-            self.patch_embed.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size,
-                                               stride=patch_size)
+            self.patch_embed.proj = nn.Conv2d(
+                in_chans, embed_dim, kernel_size=patch_size, stride=patch_size
+            )
             self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
             pos = sincos_pos_embed(grid, embed_dim)
-            pos = np.concatenate([np.zeros((1, embed_dim), dtype=np.float32), pos], axis=0)
-            self.pos_embed = nn.Parameter(torch.from_numpy(pos)[None], requires_grad=False)
-            self.blocks = nn.ModuleList([ViTBlock(embed_dim, num_heads) for _ in range(depth)])
+            pos = np.concatenate(
+                [np.zeros((1, embed_dim), dtype=np.float32), pos], axis=0
+            )
+            self.pos_embed = nn.Parameter(
+                torch.from_numpy(pos)[None], requires_grad=False
+            )
+            self.blocks = nn.ModuleList(
+                [ViTBlock(embed_dim, num_heads) for _ in range(depth)]
+            )
             self.norm = nn.LayerNorm(embed_dim, eps=1e-6)
 
             self.decoder_embed = nn.Linear(embed_dim, decoder_embed_dim, bias=True)
             self.mask_token = nn.Parameter(torch.zeros(1, 1, decoder_embed_dim))
             dpos = sincos_pos_embed(grid, decoder_embed_dim)
-            dpos = np.concatenate([np.zeros((1, decoder_embed_dim), dtype=np.float32), dpos], axis=0)
-            self.decoder_pos_embed = nn.Parameter(torch.from_numpy(dpos)[None], requires_grad=False)
+            dpos = np.concatenate(
+                [np.zeros((1, decoder_embed_dim), dtype=np.float32), dpos], axis=0
+            )
+            self.decoder_pos_embed = nn.Parameter(
+                torch.from_numpy(dpos)[None], requires_grad=False
+            )
             self.decoder_blocks = nn.ModuleList(
-                [ViTBlock(decoder_embed_dim, decoder_num_heads) for _ in range(decoder_depth)])
+                [
+                    ViTBlock(decoder_embed_dim, decoder_num_heads)
+                    for _ in range(decoder_depth)
+                ]
+            )
             self.decoder_norm = nn.LayerNorm(decoder_embed_dim, eps=1e-6)
-            self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size * patch_size * in_chans,
-                                           bias=True)
+            self.decoder_pred = nn.Linear(
+                decoder_embed_dim, patch_size * patch_size * in_chans, bias=True
+            )
 
         def forward_encoder(self, x):
             x = self.patch_embed.proj(x)
@@ -153,7 +207,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     img, patch, in_chans, embed, depth, heads = 64, 16, 3, 32, 2, 4
     dec_embed, dec_depth, dec_heads = 24, 2, 4
 
-    torch_model = TorchMAE(img, patch, in_chans, embed, depth, heads, dec_embed, dec_depth, dec_heads)
+    torch_model = TorchMAE(
+        img, patch, in_chans, embed, depth, heads, dec_embed, dec_depth, dec_heads
+    )
     torch_model.eval()
     with torch.no_grad():
         for p in torch_model.parameters():
@@ -161,19 +217,36 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     state_dict = {k: v.detach().numpy() for k, v in torch_model.state_dict().items()}
 
-    encoder = SatMAEEncoder(img_size=img, patch_size=patch, in_chans=in_chans, embed_dim=embed,
-                             depth=depth, num_heads=heads, mode="single")
-    decoder = SatMAEDecoder(num_patches=(img // patch) ** 2, patch_size=patch, in_chans=in_chans,
-                             decoder_embed_dim=dec_embed, decoder_depth=dec_depth,
-                             decoder_num_heads=dec_heads, encoder_embed_dim=embed)
+    encoder = SatMAEEncoder(
+        img_size=img,
+        patch_size=patch,
+        in_chans=in_chans,
+        embed_dim=embed,
+        depth=depth,
+        num_heads=heads,
+        mode="single",
+    )
+    decoder = SatMAEDecoder(
+        num_patches=(img // patch) ** 2,
+        patch_size=patch,
+        in_chans=in_chans,
+        decoder_embed_dim=dec_embed,
+        decoder_depth=dec_depth,
+        decoder_num_heads=dec_heads,
+        encoder_embed_dim=embed,
+    )
 
     x0 = np.zeros((1, img, img, in_chans), dtype="float32")
     tok0, mask0, ids0 = encoder(x0, apply_masking=True, mask_ratio=0.0)
     decoder(tok0, ids0)
 
     mapper = build_satmae_mapper()
-    enc_report = WeightConverter(encoder, state_dict, mapper).convert(strict=False, verbose=False)
-    dec_report = WeightConverter(decoder, state_dict, mapper).convert(strict=False, verbose=False)
+    enc_report = WeightConverter(encoder, state_dict, mapper).convert(
+        strict=False, verbose=False
+    )
+    dec_report = WeightConverter(decoder, state_dict, mapper).convert(
+        strict=False, verbose=False
+    )
     assert not enc_report["missing_in_source"]
     assert not dec_report["missing_in_source"]
 
@@ -186,7 +259,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_out = keras.ops.convert_to_numpy(decoder(tokens, ids_restore))
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-2, f"SatMAE weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-2
+    ), f"SatMAE weight port numerical mismatch: max abs diff {max_diff}"
 
 
 @pytest.mark.pretrained

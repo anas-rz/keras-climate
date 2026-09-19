@@ -8,8 +8,14 @@ from keras_climate.weights.mappings import build_afno_mapper
 
 
 def test_builds_and_runs():
-    model = AFNOOperator(input_shape=(32, 32, 2), out_channels=2, patch_size=4,
-                          embed_dim=16, depth=2, num_blocks=4)
+    model = AFNOOperator(
+        input_shape=(32, 32, 2),
+        out_channels=2,
+        patch_size=4,
+        embed_dim=16,
+        depth=2,
+        num_blocks=4,
+    )
     x = np.random.randn(2, 32, 32, 2).astype("float32")
     y = keras.ops.convert_to_numpy(model(x))
     assert y.shape == (2, 32, 32, 2)
@@ -37,7 +43,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     import torch.nn.functional as F
 
     class TorchAFNO2D(nn.Module):
-        def __init__(self, hidden_size, num_blocks, sparsity_threshold=0.01, hidden_size_factor=1):
+        def __init__(
+            self, hidden_size, num_blocks, sparsity_threshold=0.01, hidden_size_factor=1
+        ):
             super().__init__()
             self.hidden_size = hidden_size
             self.num_blocks = num_blocks
@@ -98,10 +106,14 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     state_dict = {k: v.detach().numpy() for k, v in torch_layer.state_dict().items()}
     mapper = {
-        "w1": "filter/w1", "b1": "filter/b1", "w2": "filter/w2", "b2": "filter/b2",
+        "w1": "filter/w1",
+        "b1": "filter/b1",
+        "w2": "filter/w2",
+        "b2": "filter/b2",
     }
     report = WeightConverter(keras_layer, state_dict, lambda k: mapper.get(k)).convert(
-        strict=True, verbose=False)
+        strict=True, verbose=False
+    )
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
@@ -112,7 +124,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_out = keras.ops.convert_to_numpy(keras_layer(x_np))
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-2, f"AFNO2D weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-2
+    ), f"AFNO2D weight port numerical mismatch: max abs diff {max_diff}"
 
 
 def test_afno_operator_mapper_matches_full_model():
@@ -125,7 +139,9 @@ def test_afno_operator_mapper_matches_full_model():
     class TorchPatchEmbed(nn.Module):
         def __init__(self):
             super().__init__()
-            self.proj = nn.Conv2d(input_shape[-1], embed_dim, patch_size, stride=patch_size)
+            self.proj = nn.Conv2d(
+                input_shape[-1], embed_dim, patch_size, stride=patch_size
+            )
 
     class TorchDummy(nn.Module):
         def __init__(self):
@@ -150,10 +166,18 @@ def test_afno_operator_mapper_matches_full_model():
     torch_model = TorchDummy()
     state_dict = {k: v.detach().numpy() for k, v in torch_model.state_dict().items()}
 
-    keras_model = AFNOOperator(input_shape=input_shape, out_channels=2, patch_size=patch_size,
-                                embed_dim=embed_dim, depth=depth, num_blocks=num_blocks)
+    keras_model = AFNOOperator(
+        input_shape=input_shape,
+        out_channels=2,
+        patch_size=patch_size,
+        embed_dim=embed_dim,
+        depth=depth,
+        num_blocks=num_blocks,
+    )
 
     mapper = build_afno_mapper(depth=depth)
-    report = WeightConverter(keras_model, state_dict, mapper).convert(strict=False, verbose=False)
+    report = WeightConverter(keras_model, state_dict, mapper).convert(
+        strict=False, verbose=False
+    )
     assert all(k.startswith("head/") for k in report["missing_in_source"])
     assert not report["unused_source_keys"]

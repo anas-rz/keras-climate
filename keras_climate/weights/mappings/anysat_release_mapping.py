@@ -80,7 +80,7 @@ def _map_projector(modality, rest):
     pe = "patch_embed."
     if not rest.startswith(pe):
         return None
-    r = rest[len(pe):]
+    r = rest[len(pe) :]
 
     if r == "attention_heads.Q":
         return "Q"

@@ -45,7 +45,10 @@ def _decoder_layer_rules(i):
 def _embedding_rules(torch_prefix, keras_prefix):
     tp = re.escape(torch_prefix)
     return [
-        (rf"^{tp}\.value_embedding\.conv\.weight$", f"{keras_prefix}/value_embedding/conv/kernel"),
+        (
+            rf"^{tp}\.value_embedding\.conv\.weight$",
+            f"{keras_prefix}/value_embedding/conv/kernel",
+        ),
     ]
 
 

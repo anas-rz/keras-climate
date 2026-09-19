@@ -2,7 +2,12 @@ import numpy as np
 import pytest
 import keras
 
-from keras_climate.foundation.prithvi import PrithviEncoder, PrithviClassifier, PrithviSegmenter, get_3d_sincos_pos_embed
+from keras_climate.foundation.prithvi import (
+    PrithviEncoder,
+    PrithviClassifier,
+    PrithviSegmenter,
+    get_3d_sincos_pos_embed,
+)
 from keras_climate.weights import WeightConverter, load_torch_state_dict_as_numpy
 from keras_climate.weights.mappings import build_vit_mapper
 
@@ -14,8 +19,16 @@ def test_position_embedding_shape_and_factorization():
 
 
 def test_encoder_builds_and_runs():
-    encoder = PrithviEncoder(img_size=224, patch_size=16, num_frames=3, tubelet_size=1,
-                              in_chans=6, embed_dim=64, depth=2, num_heads=4)
+    encoder = PrithviEncoder(
+        img_size=224,
+        patch_size=16,
+        num_frames=3,
+        tubelet_size=1,
+        in_chans=6,
+        embed_dim=64,
+        depth=2,
+        num_heads=4,
+    )
     x = np.random.randn(2, 3, 224, 224, 6).astype("float32")
     out = encoder(x)
     num_patches = 3 * (224 // 16) ** 2
@@ -44,11 +57,15 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.proj = nn.Linear(dim, dim)
             self.num_heads = num_heads
             self.head_dim = dim // num_heads
-            self.scale = self.head_dim ** -0.5
+            self.scale = self.head_dim**-0.5
 
         def forward(self, x):
             B, N, C = x.shape
-            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            qkv = (
+                self.qkv(x)
+                .reshape(B, N, 3, self.num_heads, self.head_dim)
+                .permute(2, 0, 3, 1, 4)
+            )
             q, k, v = qkv[0], qkv[1], qkv[2]
             attn = (q @ k.transpose(-2, -1)) * self.scale
             attn = attn.softmax(dim=-1)
@@ -78,16 +95,33 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return x
 
     class TorchPrithviViT(nn.Module):
-        def __init__(self, img_size, patch_size, num_frames, in_chans, embed_dim, depth, num_heads):
+        def __init__(
+            self,
+            img_size,
+            patch_size,
+            num_frames,
+            in_chans,
+            embed_dim,
+            depth,
+            num_heads,
+        ):
             super().__init__()
             self.patch_embed = nn.Module()
-            self.patch_embed.proj = nn.Conv3d(in_chans, embed_dim, kernel_size=(1, patch_size, patch_size),
-                                               stride=(1, patch_size, patch_size))
+            self.patch_embed.proj = nn.Conv3d(
+                in_chans,
+                embed_dim,
+                kernel_size=(1, patch_size, patch_size),
+                stride=(1, patch_size, patch_size),
+            )
             self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
             grid = img_size // patch_size
-            pos = get_3d_sincos_pos_embed(embed_dim, (num_frames, grid, grid), add_cls_token=True)
+            pos = get_3d_sincos_pos_embed(
+                embed_dim, (num_frames, grid, grid), add_cls_token=True
+            )
             self.register_buffer("pos_embed", torch.from_numpy(pos)[None])
-            self.blocks = nn.ModuleList([Block(embed_dim, num_heads) for _ in range(depth)])
+            self.blocks = nn.ModuleList(
+                [Block(embed_dim, num_heads) for _ in range(depth)]
+            )
             self.norm = nn.LayerNorm(embed_dim, eps=1e-6)
 
         def forward(self, x):
@@ -102,8 +136,18 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return self.norm(x)
 
     torch.manual_seed(0)
-    img_size, patch_size, num_frames, in_chans, embed_dim, depth, num_heads = 64, 16, 3, 6, 32, 2, 4
-    torch_model = TorchPrithviViT(img_size, patch_size, num_frames, in_chans, embed_dim, depth, num_heads)
+    img_size, patch_size, num_frames, in_chans, embed_dim, depth, num_heads = (
+        64,
+        16,
+        3,
+        6,
+        32,
+        2,
+        4,
+    )
+    torch_model = TorchPrithviViT(
+        img_size, patch_size, num_frames, in_chans, embed_dim, depth, num_heads
+    )
     torch_model.eval()
     with torch.no_grad():
         for p in torch_model.parameters():
@@ -111,21 +155,35 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     state_dict = {k: v.detach().numpy() for k, v in torch_model.state_dict().items()}
 
-    keras_model = PrithviEncoder(img_size=img_size, patch_size=patch_size, num_frames=num_frames,
-                                  tubelet_size=1, in_chans=in_chans, embed_dim=embed_dim, depth=depth,
-                                  num_heads=num_heads, name="encoder")
+    keras_model = PrithviEncoder(
+        img_size=img_size,
+        patch_size=patch_size,
+        num_frames=num_frames,
+        tubelet_size=1,
+        in_chans=in_chans,
+        embed_dim=embed_dim,
+        depth=depth,
+        num_heads=num_heads,
+        name="encoder",
+    )
     grid = img_size // patch_size
-    keras_model(np.zeros((1, num_frames, img_size, img_size, in_chans), dtype="float32"))
+    keras_model(
+        np.zeros((1, num_frames, img_size, img_size, in_chans), dtype="float32")
+    )
 
     mapper = build_vit_mapper("encoder")
     report = WeightConverter(
-        keras_model, state_dict, mapper,
+        keras_model,
+        state_dict,
+        mapper,
         param_kind_map={"encoder/patch_embed/proj/kernel": "conv3d_kernel"},
     ).convert(strict=True, verbose=False)
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
-    x_np = np.random.randn(1, in_chans, num_frames, img_size, img_size).astype("float32")
+    x_np = np.random.randn(1, in_chans, num_frames, img_size, img_size).astype(
+        "float32"
+    )
     with torch.no_grad():
         torch_out = torch_model(torch.from_numpy(x_np)).numpy()
 
@@ -133,7 +191,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_out = keras.ops.convert_to_numpy(keras_model(keras_in, training=False))
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-3, f"Prithvi weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-3
+    ), f"Prithvi weight port numerical mismatch: max abs diff {max_diff}"
 
 
 @pytest.mark.pretrained

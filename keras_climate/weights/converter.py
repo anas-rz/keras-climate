@@ -18,7 +18,13 @@ def infer_transpose(torch_shape, keras_shape, param_kind=None):
             return (2, 3, 1, 0)
 
     if param_kind == "conv3d_kernel" or len(torch_shape) == 5:
-        candidate = (torch_shape[2], torch_shape[3], torch_shape[4], torch_shape[1], torch_shape[0])
+        candidate = (
+            torch_shape[2],
+            torch_shape[3],
+            torch_shape[4],
+            torch_shape[1],
+            torch_shape[0],
+        )
         if candidate == tuple(keras_shape):
             return (2, 3, 4, 1, 0)
 
@@ -58,8 +64,14 @@ def build_regex_mapper(rules):
 
 
 class WeightConverter:
-    def __init__(self, keras_model, torch_state_dict, name_map, param_kind_map=None,
-                 skip_patterns=None):
+    def __init__(
+        self,
+        keras_model,
+        torch_state_dict,
+        name_map,
+        param_kind_map=None,
+        skip_patterns=None,
+    ):
         self.model = keras_model
         self.state_dict = torch_state_dict
         self.name_map = name_map if callable(name_map) else build_regex_mapper(name_map)
@@ -89,15 +101,21 @@ class WeightConverter:
             if source.ndim == len(keras_var.shape) + 1 and source.shape[0] == 1:
                 source = source[0]
             param_kind = self.param_kind_map.get(keras_key)
-            if param_kind is None and len(source.shape) == 2 and keras_key.endswith("/kernel"):
+            if (
+                param_kind is None
+                and len(source.shape) == 2
+                and keras_key.endswith("/kernel")
+            ):
                 param_kind = "dense_kernel"
             perm = infer_transpose(source.shape, tuple(keras_var.shape), param_kind)
             converted = apply_transpose(np.asarray(source), perm)
 
             if tuple(converted.shape) != tuple(keras_var.shape):
-                msg = (f"Shape mismatch for '{keras_key}' <- '{torch_key}': "
-                       f"source {source.shape} -> converted {converted.shape}, "
-                       f"expected {tuple(keras_var.shape)}")
+                msg = (
+                    f"Shape mismatch for '{keras_key}' <- '{torch_key}': "
+                    f"source {source.shape} -> converted {converted.shape}, "
+                    f"expected {tuple(keras_var.shape)}"
+                )
                 if strict:
                     raise ValueError(msg)
                 if verbose:
@@ -109,19 +127,29 @@ class WeightConverter:
             matched.append((keras_key, torch_key))
             used_source_keys.add(torch_key)
 
-        unused_source_keys = [k for k in self.state_dict if k not in used_source_keys
-                               and not any(p.search(k) for p in self.skip_patterns)]
+        unused_source_keys = [
+            k
+            for k in self.state_dict
+            if k not in used_source_keys
+            and not any(p.search(k) for p in self.skip_patterns)
+        ]
 
         if verbose:
-            print(f"[keras_climate] converted {len(matched)}/{len(keras_by_name)} weights.")
+            print(
+                f"[keras_climate] converted {len(matched)}/{len(keras_by_name)} weights."
+            )
             if missing:
-                print(f"[keras_climate] {len(missing)} Keras weights had no source match:")
+                print(
+                    f"[keras_climate] {len(missing)} Keras weights had no source match:"
+                )
                 for m in missing[:20]:
                     print(f"    - {m}")
                 if len(missing) > 20:
                     print(f"    ... and {len(missing) - 20} more")
             if unused_source_keys:
-                print(f"[keras_climate] {len(unused_source_keys)} source keys were unused:")
+                print(
+                    f"[keras_climate] {len(unused_source_keys)} source keys were unused:"
+                )
                 for u in unused_source_keys[:20]:
                     print(f"    - {u}")
                 if len(unused_source_keys) > 20:
@@ -156,13 +184,15 @@ def load_torch_state_dict_as_numpy(checkpoint_path, key_prefix_strip=None):
     state_dict = torch.load(checkpoint_path, map_location="cpu")
     if "state_dict" in state_dict:
         state_dict = state_dict["state_dict"]
-    if "model" in state_dict and all(isinstance(v, dict) for v in [state_dict.get("model", {})]):
+    if "model" in state_dict and all(
+        isinstance(v, dict) for v in [state_dict.get("model", {})]
+    ):
         state_dict = state_dict.get("model", state_dict)
 
     out = {}
     for k, v in state_dict.items():
         if key_prefix_strip and k.startswith(key_prefix_strip):
-            k = k[len(key_prefix_strip):]
+            k = k[len(key_prefix_strip) :]
         out[k] = v.detach().cpu().numpy() if hasattr(v, "detach") else np.asarray(v)
     return out
 

@@ -1,7 +1,9 @@
 import numpy as np
 
 
-def convert_convlstm_stack_state_dict(flat_state_dict, layer_specs, keras_prefix="encoder_convlstm"):
+def convert_convlstm_stack_state_dict(
+    flat_state_dict, layer_specs, keras_prefix="encoder_convlstm"
+):
     out = {}
     for i, (in_ch, hidden_ch) in enumerate(layer_specs):
         w = flat_state_dict[f"cell_list.{i}.conv.weight"]
@@ -13,7 +15,7 @@ def convert_convlstm_stack_state_dict(flat_state_dict, layer_specs, keras_prefix
         b_reordered = np.concatenate([bi, bf, bg, bo], axis=0)
 
         w_input = w_reordered[:, :in_ch]
-        w_recurrent = w_reordered[:, in_ch:in_ch + hidden_ch]
+        w_recurrent = w_reordered[:, in_ch : in_ch + hidden_ch]
 
         kernel = np.transpose(w_input, (2, 3, 1, 0))
         recurrent_kernel = np.transpose(w_recurrent, (2, 3, 1, 0))

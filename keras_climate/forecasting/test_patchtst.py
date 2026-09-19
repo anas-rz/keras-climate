@@ -8,16 +8,32 @@ from keras_climate.weights.mappings import build_patchtst_mapper
 
 
 def test_builds_and_runs():
-    model = PatchTST(seq_len=96, pred_len=24, num_channels=3, patch_len=16, stride=8,
-                      d_model=32, depth=2, num_heads=4)
+    model = PatchTST(
+        seq_len=96,
+        pred_len=24,
+        num_channels=3,
+        patch_len=16,
+        stride=8,
+        d_model=32,
+        depth=2,
+        num_heads=4,
+    )
     x = np.random.randn(2, 96, 3).astype("float32")
     y = keras.ops.convert_to_numpy(model(x))
     assert y.shape == (2, 24, 3)
 
 
 def test_end_padding_adds_one_patch():
-    common = dict(seq_len=96, pred_len=24, num_channels=3, patch_len=16, stride=8,
-                  d_model=16, depth=1, num_heads=2)
+    common = dict(
+        seq_len=96,
+        pred_len=24,
+        num_channels=3,
+        patch_len=16,
+        stride=8,
+        d_model=16,
+        depth=1,
+        num_heads=2,
+    )
     padded = PatchTST(**common, padding_patch="end")
     unpadded = PatchTST(**common, padding_patch=None)
     padded_patches = padded.get_layer("pos_embed").num_patches
@@ -26,16 +42,32 @@ def test_end_padding_adds_one_patch():
 
 
 def test_revin_weights_are_tracked_and_trainable():
-    model = PatchTST(seq_len=48, pred_len=12, num_channels=2, patch_len=8, stride=4,
-                      d_model=16, depth=1, num_heads=2)
+    model = PatchTST(
+        seq_len=48,
+        pred_len=12,
+        num_channels=2,
+        patch_len=8,
+        stride=4,
+        d_model=16,
+        depth=1,
+        num_heads=2,
+    )
     revin_weight_names = [w.path for w in model.weights if "revin" in w.path]
     assert set(revin_weight_names) == {"revin/gamma", "revin/beta"}
     assert model.get_layer("revin") in model.layers
 
 
 def test_positional_embedding_is_tracked_and_trainable():
-    model = PatchTST(seq_len=48, pred_len=12, num_channels=2, patch_len=8, stride=4,
-                      d_model=16, depth=1, num_heads=2)
+    model = PatchTST(
+        seq_len=48,
+        pred_len=12,
+        num_channels=2,
+        patch_len=8,
+        stride=4,
+        d_model=16,
+        depth=1,
+        num_heads=2,
+    )
     assert model.get_layer("pos_embed") in model.layers
     assert any(w.path == "pos_embed/embeddings" for w in model.weights)
 
@@ -59,11 +91,15 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.proj = nn.Linear(dim, dim)
             self.num_heads = num_heads
             self.head_dim = dim // num_heads
-            self.scale = self.head_dim ** -0.5
+            self.scale = self.head_dim**-0.5
 
         def forward(self, x):
             B, N, C = x.shape
-            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+            qkv = (
+                self.qkv(x)
+                .reshape(B, N, 3, self.num_heads, self.head_dim)
+                .permute(2, 0, 3, 1, 4)
+            )
             q, k, v = qkv[0], qkv[1], qkv[2]
             attn = (q @ k.transpose(-2, -1) * self.scale).softmax(dim=-1)
             out = (attn @ v).transpose(1, 2).reshape(B, N, C)
@@ -100,16 +136,28 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
         def norm(self, x):
             self.mean = x.mean(dim=1, keepdim=True).detach()
-            self.stdev = (x.var(dim=1, keepdim=True, unbiased=False) + self.eps).sqrt().detach()
+            self.stdev = (
+                (x.var(dim=1, keepdim=True, unbiased=False) + self.eps).sqrt().detach()
+            )
             x = (x - self.mean) / self.stdev
             return x * self.affine_weight + self.affine_bias
 
         def denorm(self, x):
-            x = (x - self.affine_bias) / (self.affine_weight + self.eps ** 2)
+            x = (x - self.affine_bias) / (self.affine_weight + self.eps**2)
             return x * self.stdev + self.mean
 
     class TorchPatchTST(nn.Module):
-        def __init__(self, seq_len, pred_len, num_channels, patch_len, stride, d_model, depth, num_heads):
+        def __init__(
+            self,
+            seq_len,
+            pred_len,
+            num_channels,
+            patch_len,
+            stride,
+            d_model,
+            depth,
+            num_heads,
+        ):
             super().__init__()
             self.revin = TorchRevIN(num_channels)
             self.patch_len, self.stride = patch_len, stride
@@ -118,7 +166,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.num_patches = (padded_len - patch_len) // stride + 1
             self.patch_proj = nn.Linear(patch_len, d_model)
             self.pos_embed = nn.Parameter(torch.zeros(self.num_patches, d_model))
-            self.blocks = nn.ModuleList([Block(d_model, num_heads) for _ in range(depth)])
+            self.blocks = nn.ModuleList(
+                [Block(d_model, num_heads) for _ in range(depth)]
+            )
             self.encoder_norm = nn.LayerNorm(d_model, eps=1e-6)
             self.forecast_head = nn.Linear(self.num_patches * d_model, pred_len)
             self.pred_len = pred_len
@@ -144,7 +194,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     seq_len, pred_len, num_channels, patch_len, stride = 32, 8, 2, 8, 4
     d_model, depth, num_heads = 16, 1, 2
 
-    torch_model = TorchPatchTST(seq_len, pred_len, num_channels, patch_len, stride, d_model, depth, num_heads)
+    torch_model = TorchPatchTST(
+        seq_len, pred_len, num_channels, patch_len, stride, d_model, depth, num_heads
+    )
     torch_model.eval()
     with torch.no_grad():
         for p in torch_model.parameters():
@@ -152,12 +204,23 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     state_dict = {k: v.detach().numpy() for k, v in torch_model.state_dict().items()}
 
-    keras_model = PatchTST(seq_len=seq_len, pred_len=pred_len, num_channels=num_channels,
-                            patch_len=patch_len, stride=stride, d_model=d_model, depth=depth,
-                            num_heads=num_heads, dropout=0.0, padding_patch="end")
+    keras_model = PatchTST(
+        seq_len=seq_len,
+        pred_len=pred_len,
+        num_channels=num_channels,
+        patch_len=patch_len,
+        stride=stride,
+        d_model=d_model,
+        depth=depth,
+        num_heads=num_heads,
+        dropout=0.0,
+        padding_patch="end",
+    )
 
     mapper = build_patchtst_mapper(depth=depth)
-    report = WeightConverter(keras_model, state_dict, mapper).convert(strict=True, verbose=False)
+    report = WeightConverter(keras_model, state_dict, mapper).convert(
+        strict=True, verbose=False
+    )
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
@@ -168,4 +231,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_out = keras.ops.convert_to_numpy(keras_model(x_np, training=False))
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-2, f"PatchTST weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-2
+    ), f"PatchTST weight port numerical mismatch: max abs diff {max_diff}"

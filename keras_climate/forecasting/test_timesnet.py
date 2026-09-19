@@ -8,24 +8,45 @@ from keras_climate.weights.mappings import build_timesnet_mapper
 
 
 def test_builds_and_runs():
-    model = TimesNet(seq_len=48, pred_len=24, num_channels=3, d_model=16, d_ff=32,
-                      num_layers=2, num_kernels=3, top_k=3)
+    model = TimesNet(
+        seq_len=48,
+        pred_len=24,
+        num_channels=3,
+        d_model=16,
+        d_ff=32,
+        num_layers=2,
+        num_kernels=3,
+        top_k=3,
+    )
     x = np.random.randn(2, 48, 3).astype("float32")
     y = keras.ops.convert_to_numpy(model(x))
     assert y.shape == (2, 24, 3)
 
 
 def test_revin_weights_are_tracked():
-    model = TimesNet(seq_len=24, pred_len=8, num_channels=2, d_model=8, d_ff=16,
-                      num_layers=1, num_kernels=2, top_k=2)
+    model = TimesNet(
+        seq_len=24,
+        pred_len=8,
+        num_channels=2,
+        d_model=8,
+        d_ff=16,
+        num_layers=1,
+        num_kernels=2,
+        top_k=2,
+    )
     assert model.get_layer("revin") in model.layers
-    assert {w.path for w in model.weights if "revin" in w.path} == {"revin/gamma", "revin/beta"}
+    assert {w.path for w in model.weights if "revin" in w.path} == {
+        "revin/gamma",
+        "revin/beta",
+    }
 
 
 def test_fusion_weights_are_data_dependent():
     block = FFTPeriodBlock(d_model=8, d_ff=16, num_kernels=2, top_k=3)
     x1 = np.random.randn(1, 24, 8).astype("float32") * 0.1
-    x2 = np.sin(np.linspace(0, 8 * np.pi, 24))[None, :, None].astype("float32") * np.ones((1, 24, 8), "float32")
+    x2 = np.sin(np.linspace(0, 8 * np.pi, 24))[None, :, None].astype(
+        "float32"
+    ) * np.ones((1, 24, 8), "float32")
     out1 = keras.ops.convert_to_numpy(block(x1, seq_len=24))
     out2 = keras.ops.convert_to_numpy(block(x2, seq_len=24))
     assert not np.allclose(out1 - x1, out2 - x2, atol=1e-3)
@@ -39,9 +60,12 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     class InceptionBlockV1(nn.Module):
         def __init__(self, in_ch, out_ch, num_kernels):
             super().__init__()
-            self.convs = nn.ModuleList([
-                nn.Conv2d(in_ch, out_ch, 2 * i + 1, padding=i) for i in range(num_kernels)
-            ])
+            self.convs = nn.ModuleList(
+                [
+                    nn.Conv2d(in_ch, out_ch, 2 * i + 1, padding=i)
+                    for i in range(num_kernels)
+                ]
+            )
 
         def forward(self, x):
             return torch.stack([c(x) for c in self.convs], dim=-1).mean(dim=-1)
@@ -55,11 +79,13 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
         def norm(self, x):
             self.mean = x.mean(dim=1, keepdim=True).detach()
-            self.stdev = (x.var(dim=1, keepdim=True, unbiased=False) + self.eps).sqrt().detach()
+            self.stdev = (
+                (x.var(dim=1, keepdim=True, unbiased=False) + self.eps).sqrt().detach()
+            )
             return (x - self.mean) / self.stdev * self.affine_weight + self.affine_bias
 
         def denorm(self, x):
-            x = (x - self.affine_bias) / (self.affine_weight + self.eps ** 2)
+            x = (x - self.affine_bias) / (self.affine_weight + self.eps**2)
             return x * self.stdev + self.mean
 
     def candidate_periods(seq_len, k=5):
@@ -101,13 +127,29 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return (stacked * w).sum(dim=-1) + x
 
     class TorchTimesNet(nn.Module):
-        def __init__(self, seq_len, pred_len, num_channels, d_model, d_ff, num_layers, num_kernels, top_k):
+        def __init__(
+            self,
+            seq_len,
+            pred_len,
+            num_channels,
+            d_model,
+            d_ff,
+            num_layers,
+            num_kernels,
+            top_k,
+        ):
             super().__init__()
             self.revin = TorchRevIN(num_channels)
             self.value_embed = nn.Linear(num_channels, d_model)
-            self.timesblocks = nn.ModuleList([TimesBlock(d_model, d_ff, num_kernels, top_k)
-                                               for _ in range(num_layers)])
-            self.norms = nn.ModuleList([nn.LayerNorm(d_model, eps=1e-6) for _ in range(num_layers)])
+            self.timesblocks = nn.ModuleList(
+                [
+                    TimesBlock(d_model, d_ff, num_kernels, top_k)
+                    for _ in range(num_layers)
+                ]
+            )
+            self.norms = nn.ModuleList(
+                [nn.LayerNorm(d_model, eps=1e-6) for _ in range(num_layers)]
+            )
             self.predict_linear = nn.Linear(seq_len, seq_len + pred_len)
             self.output_proj = nn.Linear(d_model, num_channels)
             self.seq_len, self.pred_len = seq_len, pred_len
@@ -118,14 +160,16 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             for blk, norm in zip(self.timesblocks, self.norms):
                 x = norm(blk(x, self.seq_len))
             x = self.predict_linear(x.transpose(1, 2)).transpose(1, 2)
-            out = self.output_proj(x)[:, -self.pred_len:, :]
+            out = self.output_proj(x)[:, -self.pred_len :, :]
             return self.revin.denorm(out)
 
     torch.manual_seed(0)
     seq_len, pred_len, num_channels = 24, 8, 2
     d_model, d_ff, num_layers, num_kernels, top_k = 8, 16, 1, 2, 2
 
-    torch_model = TorchTimesNet(seq_len, pred_len, num_channels, d_model, d_ff, num_layers, num_kernels, top_k)
+    torch_model = TorchTimesNet(
+        seq_len, pred_len, num_channels, d_model, d_ff, num_layers, num_kernels, top_k
+    )
     torch_model.eval()
     with torch.no_grad():
         for p in torch_model.parameters():
@@ -139,8 +183,12 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     for i, (blk, norm) in enumerate(zip(torch_model.timesblocks, torch_model.norms)):
         for conv_name in ("conv1", "conv2"):
             for k, conv in enumerate(getattr(blk, conv_name).convs):
-                flat[f"timesblock{i}.{conv_name}.convs.{k}.weight"] = conv.weight.detach().numpy()
-                flat[f"timesblock{i}.{conv_name}.convs.{k}.bias"] = conv.bias.detach().numpy()
+                flat[f"timesblock{i}.{conv_name}.convs.{k}.weight"] = (
+                    conv.weight.detach().numpy()
+                )
+                flat[f"timesblock{i}.{conv_name}.convs.{k}.bias"] = (
+                    conv.bias.detach().numpy()
+                )
         flat[f"norm{i}.weight"] = norm.weight.detach().numpy()
         flat[f"norm{i}.bias"] = norm.bias.detach().numpy()
     flat["predict_linear.weight"] = torch_model.predict_linear.weight.detach().numpy()
@@ -148,11 +196,20 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     flat["output_proj.weight"] = torch_model.output_proj.weight.detach().numpy()
     flat["output_proj.bias"] = torch_model.output_proj.bias.detach().numpy()
 
-    keras_model = TimesNet(seq_len=seq_len, pred_len=pred_len, num_channels=num_channels,
-                            d_model=d_model, d_ff=d_ff, num_layers=num_layers,
-                            num_kernels=num_kernels, top_k=top_k)
+    keras_model = TimesNet(
+        seq_len=seq_len,
+        pred_len=pred_len,
+        num_channels=num_channels,
+        d_model=d_model,
+        d_ff=d_ff,
+        num_layers=num_layers,
+        num_kernels=num_kernels,
+        top_k=top_k,
+    )
     mapper = build_timesnet_mapper(num_layers=num_layers, num_kernels=num_kernels)
-    report = WeightConverter(keras_model, flat, mapper).convert(strict=True, verbose=False)
+    report = WeightConverter(keras_model, flat, mapper).convert(
+        strict=True, verbose=False
+    )
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
@@ -163,4 +220,6 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     keras_out = keras.ops.convert_to_numpy(keras_model(x_np, training=False))
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-2, f"TimesNet weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-2
+    ), f"TimesNet weight port numerical mismatch: max abs diff {max_diff}"

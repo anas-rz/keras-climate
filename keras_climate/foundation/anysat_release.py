@@ -2,7 +2,6 @@ import numpy as np
 import keras
 from keras import layers, ops
 
-
 ANYSAT_CONFIGS = {
     "tiny": dict(embed_dim=256, depth=2, num_heads=4),
     "small": dict(embed_dim=512, depth=4, num_heads=8),
@@ -10,15 +9,34 @@ ANYSAT_CONFIGS = {
 }
 
 ANYSAT_MODALITIES = [
-    "aerial", "aerial-flair", "spot", "naip",
-    "s2", "s1-asc", "s1", "alos", "l7", "l8", "modis",
+    "aerial",
+    "aerial-flair",
+    "spot",
+    "naip",
+    "s2",
+    "s1-asc",
+    "s1",
+    "alos",
+    "l7",
+    "l8",
+    "modis",
 ]
 
 ANYSAT_IMAGE_MODALITIES = {"aerial", "aerial-flair", "spot", "naip"}
 
 ANYSAT_INPUT_RES = {
-    "aerial": 2, "aerial-flair": 2, "spot": 10, "naip": 10, "s2": 10,
-    "s1-asc": 10, "s1-des": 10, "s1": 10, "l8": 10, "l7": 30, "alos": 30, "modis": 250,
+    "aerial": 2,
+    "aerial-flair": 2,
+    "spot": 10,
+    "naip": 10,
+    "s2": 10,
+    "s1-asc": 10,
+    "s1-des": 10,
+    "s1": 10,
+    "l8": 10,
+    "l7": 30,
+    "alos": 30,
+    "modis": 250,
 }
 
 _TS_LTAE_HEAD = dict(n_head=16, d_k=8)
@@ -32,20 +50,69 @@ def anysat_projector_configs(embed_dim):
         "aerial-flair": dict(kind="image", patch_size=10, in_chans=5, resolution=0.2),
         "spot": dict(kind="image", patch_size=10, in_chans=3, resolution=1.0),
         "naip": dict(kind="image", patch_size=8, in_chans=4, resolution=1.25),
-        "s2": dict(kind="ts", in_channels=10, T=367, in_norm=True, reduce_scale=1, mlp_in=list(mlp_in)),
-        "s1-asc": dict(kind="ts", in_channels=2, T=367, in_norm=False, reduce_scale=1, mlp_in=list(mlp_in)),
-        "s1": dict(kind="ts", in_channels=3, T=367, in_norm=False, reduce_scale=1, mlp_in=list(mlp_in)),
-        "alos": dict(kind="ts", in_channels=3, T=367, in_norm=False, reduce_scale=1, mlp_in=list(mlp_in)),
-        "l7": dict(kind="ts", in_channels=6, T=367, in_norm=False, reduce_scale=1, mlp_in=list(mlp_in)),
-        "l8": dict(kind="ts", in_channels=11, T=366, in_norm=False, reduce_scale=1, mlp_in=list(mlp_in)),
-        "modis": dict(kind="ts", in_channels=7, T=367, in_norm=False, reduce_scale=12, mlp_in=list(mlp_in)),
+        "s2": dict(
+            kind="ts",
+            in_channels=10,
+            T=367,
+            in_norm=True,
+            reduce_scale=1,
+            mlp_in=list(mlp_in),
+        ),
+        "s1-asc": dict(
+            kind="ts",
+            in_channels=2,
+            T=367,
+            in_norm=False,
+            reduce_scale=1,
+            mlp_in=list(mlp_in),
+        ),
+        "s1": dict(
+            kind="ts",
+            in_channels=3,
+            T=367,
+            in_norm=False,
+            reduce_scale=1,
+            mlp_in=list(mlp_in),
+        ),
+        "alos": dict(
+            kind="ts",
+            in_channels=3,
+            T=367,
+            in_norm=False,
+            reduce_scale=1,
+            mlp_in=list(mlp_in),
+        ),
+        "l7": dict(
+            kind="ts",
+            in_channels=6,
+            T=367,
+            in_norm=False,
+            reduce_scale=1,
+            mlp_in=list(mlp_in),
+        ),
+        "l8": dict(
+            kind="ts",
+            in_channels=11,
+            T=366,
+            in_norm=False,
+            reduce_scale=1,
+            mlp_in=list(mlp_in),
+        ),
+        "modis": dict(
+            kind="ts",
+            in_channels=7,
+            T=367,
+            in_norm=False,
+            reduce_scale=12,
+            mlp_in=list(mlp_in),
+        ),
     }
     return configs
 
 
 def _sincos_1d(dim_half, pos):
     omega = np.arange(dim_half // 2, dtype=np.float64) / (dim_half / 2.0)
-    omega = 1.0 / (10000 ** omega)
+    omega = 1.0 / (10000**omega)
     pos = pos.reshape(-1).astype(np.float64)
     out = np.einsum("m,d->md", pos, omega)
     return np.concatenate([np.sin(out), np.cos(out)], axis=1)
@@ -95,7 +162,9 @@ def _piecewise_index(rel):
     not_mask = rp_abs > _ALPHA
     rp_out = rel[not_mask]
     rp_abs_out = rp_abs[not_mask]
-    inner = _ALPHA + np.log(rp_abs_out / _ALPHA) / np.log(_GAMMA / _ALPHA) * (_BETA - _ALPHA)
+    inner = _ALPHA + np.log(rp_abs_out / _ALPHA) / np.log(_GAMMA / _ALPHA) * (
+        _BETA - _ALPHA
+    )
     inner = np.minimum(np.round(inner), _BETA)
     idx[not_mask] = np.sign(rp_out) * inner
     return idx.astype(np.int64)
@@ -132,11 +201,11 @@ def _unfold(x, dim, size):
     shape = ops.shape(x)
     static_shape = x.shape
     n = static_shape[dim] // size
-    new_shape = tuple(shape[:dim]) + (n, size) + tuple(shape[dim + 1:])
+    new_shape = tuple(shape[:dim]) + (n, size) + tuple(shape[dim + 1 :])
     x = ops.reshape(x, new_shape)
     perm = list(range(len(new_shape)))
     axis = dim + 1
-    perm = perm[:axis] + perm[axis + 1:] + [axis]
+    perm = perm[:axis] + perm[axis + 1 :] + [axis]
     return ops.transpose(x, perm)
 
 
@@ -151,7 +220,9 @@ def _rpe_bias_k(q, weight, flat_idx, num_buckets, Lq, Lk):
 
 class AnySatImageProjector(layers.Layer):
 
-    def __init__(self, embed_dim, patch_size, in_chans, resolution, scale, bias=False, **kwargs):
+    def __init__(
+        self, embed_dim, patch_size, in_chans, resolution, scale, bias=False, **kwargs
+    ):
         super().__init__(**kwargs)
         self.embed_dim = embed_dim
         self.patch_size = patch_size
@@ -171,8 +242,13 @@ class AnySatImageProjector(layers.Layer):
         self.num_patches = self.Htp * self.Wtp
         self.subpatch_count = gs * gs * scale * scale
 
-        self.patch_embed = layers.Conv2D(self.embed_dim, self.patch_size, strides=self.patch_size,
-                                          use_bias=self.use_bias, name="patch_embed")
+        self.patch_embed = layers.Conv2D(
+            self.embed_dim,
+            self.patch_size,
+            strides=self.patch_size,
+            use_bias=self.use_bias,
+            name="patch_embed",
+        )
         self.mlp_lin0 = layers.Dense(self.embed_dim * 2, name="mlp_lin0")
         self.mlp_ln0 = layers.LayerNormalization(epsilon=1e-5, name="mlp_ln0")
         self.mlp_lin1 = layers.Dense(self.embed_dim, name="mlp_lin1")
@@ -202,8 +278,19 @@ class AnySatImageProjector(layers.Layer):
 
 class AnySatTimeSeriesProjector(layers.Layer):
 
-    def __init__(self, embed_dim, in_channels, T, in_norm, reduce_scale, scale,
-                 n_head=16, d_k=8, mlp_in=None, **kwargs):
+    def __init__(
+        self,
+        embed_dim,
+        in_channels,
+        T,
+        in_norm,
+        reduce_scale,
+        scale,
+        n_head=16,
+        d_k=8,
+        mlp_in=None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.embed_dim = embed_dim
         self.in_channels = in_channels
@@ -213,7 +300,11 @@ class AnySatTimeSeriesProjector(layers.Layer):
         self.scale = scale
         self.n_head = n_head
         self.d_k = d_k
-        self.mlp_in_dims = list(mlp_in) if mlp_in else [embed_dim // 8, embed_dim // 2, embed_dim, embed_dim * 2, embed_dim]
+        self.mlp_in_dims = (
+            list(mlp_in)
+            if mlp_in
+            else [embed_dim // 8, embed_dim // 2, embed_dim, embed_dim * 2, embed_dim]
+        )
         self.d_model = self.mlp_in_dims[-1]
         self.scale_eff = max(1, scale // reduce_scale)
 
@@ -229,24 +320,40 @@ class AnySatTimeSeriesProjector(layers.Layer):
         self.inconv_gn = []
         for i in range(len(dims) - 1):
             self.inconv_lin.append(layers.Dense(dims[i + 1], name=f"inconv_lin{i}"))
-            self.inconv_gn.append(layers.GroupNormalization(groups=4, epsilon=1e-5, name=f"inconv_gn{i}"))
+            self.inconv_gn.append(
+                layers.GroupNormalization(groups=4, epsilon=1e-5, name=f"inconv_gn{i}")
+            )
 
-        self.in_norm = layers.GroupNormalization(groups=self.n_head, epsilon=1e-5, name="in_norm") if self.use_in_norm else None
+        self.in_norm = (
+            layers.GroupNormalization(groups=self.n_head, epsilon=1e-5, name="in_norm")
+            if self.use_in_norm
+            else None
+        )
 
         self.fc1_k = layers.Dense(self.n_head * self.d_k, name="fc1_k")
-        self.Q = self.add_weight(shape=(self.n_head, self.d_k), initializer="zeros", name="Q")
+        self.Q = self.add_weight(
+            shape=(self.n_head, self.d_k), initializer="zeros", name="Q"
+        )
 
         mlp_dims = [self.d_model, self.d_model]
         self.mlp_lin = [layers.Dense(mlp_dims[1], name="mlp_lin0")]
-        self.mlp_gn = [layers.GroupNormalization(groups=4, epsilon=1e-5, name="mlp_gn0")]
+        self.mlp_gn = [
+            layers.GroupNormalization(groups=4, epsilon=1e-5, name="mlp_gn0")
+        ]
 
-        self.out_norm = layers.GroupNormalization(groups=self.n_head, epsilon=1e-5, name="out_norm")
+        self.out_norm = layers.GroupNormalization(
+            groups=self.n_head, epsilon=1e-5, name="out_norm"
+        )
 
         pe_dim = self.d_model // self.n_head
         omega = np.arange(pe_dim, dtype=np.float64)
         denom = self.T_period ** (2 * (omega // 2) / pe_dim)
-        self._pe_denom = self.add_weight(shape=(pe_dim,), initializer=keras.initializers.Constant(denom),
-                                          trainable=False, name="pe_denom")
+        self._pe_denom = self.add_weight(
+            shape=(pe_dim,),
+            initializer=keras.initializers.Constant(denom),
+            trainable=False,
+            name="pe_denom",
+        )
         self._pe_dim = pe_dim
         super().build(input_shape)
 
@@ -293,7 +400,9 @@ class AnySatTimeSeriesProjector(layers.Layer):
         v = ops.transpose(v, (2, 0, 1, 3))
         v = ops.reshape(v, (n_head * N, T, self.d_model // n_head))
 
-        attn = ops.matmul(q[:, None, :], ops.transpose(k, (0, 2, 1))) / ops.sqrt(ops.cast(d_k, "float32"))
+        attn = ops.matmul(q[:, None, :], ops.transpose(k, (0, 2, 1))) / ops.sqrt(
+            ops.cast(d_k, "float32")
+        )
         attn = ops.softmax(attn, axis=-1)
         att_out = ops.matmul(attn, v)
         att_out = ops.reshape(att_out, (n_head, N, self.d_model // n_head))
@@ -327,7 +436,7 @@ class AnySatPlainBlock(layers.Layer):
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
         self.mlp_ratio = mlp_ratio
 
     def build(self, input_shape):
@@ -362,24 +471,33 @@ class AnySatLocalEncoder(layers.Layer):
         self.depth = depth
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
         self.mlp_ratio = mlp_ratio
 
     def build(self, input_shape):
         d = self.embed_dim
-        self.cls_token = self.add_weight(shape=(1, 1, d), initializer="zeros", name="cls_token")
+        self.cls_token = self.add_weight(
+            shape=(1, 1, d), initializer="zeros", name="cls_token"
+        )
         self.blocks = []
         for i in range(self.depth):
             blk = {
-                "norm1": layers.LayerNormalization(epsilon=1e-5, name=f"block{i}_norm1"),
+                "norm1": layers.LayerNormalization(
+                    epsilon=1e-5, name=f"block{i}_norm1"
+                ),
                 "qkv": layers.Dense(d * 3, name=f"block{i}_attn_qkv"),
                 "proj": layers.Dense(d, name=f"block{i}_attn_proj"),
-                "norm2": layers.LayerNormalization(epsilon=1e-5, name=f"block{i}_norm2"),
+                "norm2": layers.LayerNormalization(
+                    epsilon=1e-5, name=f"block{i}_norm2"
+                ),
                 "fc1": layers.Dense(int(d * self.mlp_ratio), name=f"block{i}_mlp_fc1"),
                 "fc2": layers.Dense(d, name=f"block{i}_mlp_fc2"),
             }
-            rpe_w = self.add_weight(shape=(1, self.head_dim, _NUM_BUCKETS_NOSKIP + 1),
-                                     initializer="zeros", name=f"block{i}_rpe_k_weight")
+            rpe_w = self.add_weight(
+                shape=(1, self.head_dim, _NUM_BUCKETS_NOSKIP + 1),
+                initializer="zeros",
+                name=f"block{i}_rpe_k_weight",
+            )
             blk["rpe_k_weight"] = rpe_w
             self.blocks.append(blk)
         self.norm = layers.LayerNormalization(epsilon=1e-5, name="norm")
@@ -419,7 +537,7 @@ class AnySatCrossPoolingBlock(layers.Layer):
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
         self.mlp_ratio = mlp_ratio
 
     def build(self, input_shape):
@@ -427,16 +545,30 @@ class AnySatCrossPoolingBlock(layers.Layer):
         self.norm1 = layers.LayerNormalization(epsilon=1e-6, name="norm1")
         self.wk = layers.Dense(d, name="attn_wk")
         self.wv = layers.Dense(d, name="attn_wv")
-        self.q_learned = self.add_weight(shape=(1, 1, d), initializer="zeros", name="attn_q_learned")
-        self.rpe_k_weight = self.add_weight(shape=(1, self.head_dim, _NUM_BUCKETS_NOSKIP + 1),
-                                             initializer="zeros", name="attn_rpe_k_weight")
+        self.q_learned = self.add_weight(
+            shape=(1, 1, d), initializer="zeros", name="attn_q_learned"
+        )
+        self.rpe_k_weight = self.add_weight(
+            shape=(1, self.head_dim, _NUM_BUCKETS_NOSKIP + 1),
+            initializer="zeros",
+            name="attn_rpe_k_weight",
+        )
         self.proj = layers.Dense(d, name="attn_proj")
         self.norm2 = layers.LayerNormalization(epsilon=1e-6, name="norm2")
         self.fc1 = layers.Dense(int(d * self.mlp_ratio), name="mlp_fc1")
         self.fc2 = layers.Dense(d, name="mlp_fc2")
         super().build(input_shape)
 
-    def call(self, x, pos_embed_q, n_modalities, num_patches_side, flat_idx, num_buckets, modis=False):
+    def call(
+        self,
+        x,
+        pos_embed_q,
+        n_modalities,
+        num_patches_side,
+        flat_idx,
+        num_buckets,
+        modis=False,
+    ):
         h = self.norm1(x)
         B, N, C = ops.shape(h)[0], h.shape[1], self.embed_dim
         num_patches = num_patches_side * num_patches_side
@@ -445,20 +577,26 @@ class AnySatCrossPoolingBlock(layers.Layer):
 
         q_ = self.q_learned + pos_embed_q[None]
         q_ = ops.broadcast_to(q_, (B, Nq, C))
-        q = ops.transpose(ops.reshape(q_, (B, Nq, self.num_heads, self.head_dim)), (0, 2, 1, 3))
-        k = ops.transpose(ops.reshape(self.wk(h), (B, N, self.num_heads, self.head_dim)), (0, 2, 1, 3))
-        v = ops.transpose(ops.reshape(self.wv(h), (B, N, self.num_heads, self.head_dim)), (0, 2, 1, 3))
+        q = ops.transpose(
+            ops.reshape(q_, (B, Nq, self.num_heads, self.head_dim)), (0, 2, 1, 3)
+        )
+        k = ops.transpose(
+            ops.reshape(self.wk(h), (B, N, self.num_heads, self.head_dim)), (0, 2, 1, 3)
+        )
+        v = ops.transpose(
+            ops.reshape(self.wv(h), (B, N, self.num_heads, self.head_dim)), (0, 2, 1, 3)
+        )
 
         attn = ops.matmul(q, ops.transpose(k, (0, 1, 3, 2))) * self.scale
         rpe = _rpe_bias_k(q, self.rpe_k_weight, flat_idx, num_buckets, Nq, Nq)
-        rpe_prefix = rpe[:, :, :, :1 + modis_i]
-        rpe_tiled = ops.tile(rpe[:, :, :, 1 + modis_i:], (1, 1, 1, n_modalities))
+        rpe_prefix = rpe[:, :, :, : 1 + modis_i]
+        rpe_tiled = ops.tile(rpe[:, :, :, 1 + modis_i :], (1, 1, 1, n_modalities))
         attn = attn + ops.concatenate([rpe_prefix, rpe_tiled], axis=-1)
         attn = ops.softmax(attn)
 
         out = ops.matmul(attn, v)
         out = ops.reshape(ops.transpose(out, (0, 2, 1, 3)), (B, Nq, C))
-        out = ops.concatenate([out[:, :1], out[:, 1 + modis_i:]], axis=1)
+        out = ops.concatenate([out[:, :1], out[:, 1 + modis_i :]], axis=1)
         pooled = self.proj(out)
 
         x = pooled + _mlp(self.norm2(pooled), self.fc1, self.fc2)
@@ -467,9 +605,20 @@ class AnySatCrossPoolingBlock(layers.Layer):
 
 class AnySatRelease(keras.Model):
 
-    def __init__(self, modalities, input_shapes, scale, size="base",
-                 embed_dim=None, depth=None, num_heads=None, mlp_ratio=4.0,
-                 output="patch", name="anysat_release", **kwargs):
+    def __init__(
+        self,
+        modalities,
+        input_shapes,
+        scale,
+        size="base",
+        embed_dim=None,
+        depth=None,
+        num_heads=None,
+        mlp_ratio=4.0,
+        output="patch",
+        name="anysat_release",
+        **kwargs,
+    ):
         super().__init__(name=name, **kwargs)
         cfg = ANYSAT_CONFIGS[size]
         self.embed_dim = embed_dim or cfg["embed_dim"]
@@ -481,7 +630,9 @@ class AnySatRelease(keras.Model):
         self.scale = scale
         self.output_mode = output
         if output not in ("tile", "patch"):
-            raise ValueError("output must be 'tile' or 'patch' (dense/subpatch output is not implemented)")
+            raise ValueError(
+                "output must be 'tile' or 'patch' (dense/subpatch output is not implemented)"
+            )
 
         proj_cfgs = anysat_projector_configs(self.embed_dim)
         self.projectors = {}
@@ -489,20 +640,47 @@ class AnySatRelease(keras.Model):
             pc = proj_cfgs[m]
             if pc["kind"] == "image":
                 self.projectors[m] = AnySatImageProjector(
-                    self.embed_dim, pc["patch_size"], pc["in_chans"], pc["resolution"], scale,
-                    bias=False, name=f"projector_{m}")
+                    self.embed_dim,
+                    pc["patch_size"],
+                    pc["in_chans"],
+                    pc["resolution"],
+                    scale,
+                    bias=False,
+                    name=f"projector_{m}",
+                )
             else:
                 self.projectors[m] = AnySatTimeSeriesProjector(
-                    self.embed_dim, pc["in_channels"], pc["T"], pc["in_norm"], pc["reduce_scale"], scale,
-                    n_head=_TS_LTAE_HEAD["n_head"], d_k=_TS_LTAE_HEAD["d_k"], mlp_in=pc["mlp_in"],
-                    name=f"projector_{m}")
+                    self.embed_dim,
+                    pc["in_channels"],
+                    pc["T"],
+                    pc["in_norm"],
+                    pc["reduce_scale"],
+                    scale,
+                    n_head=_TS_LTAE_HEAD["n_head"],
+                    d_k=_TS_LTAE_HEAD["d_k"],
+                    mlp_in=pc["mlp_in"],
+                    name=f"projector_{m}",
+                )
 
-        self.local_encoder = AnySatLocalEncoder(self.embed_dim, self.depth, self.num_heads,
-                                                 mlp_ratio, name="spatial_encoder")
-        self.cls_token = self.add_weight(shape=(1, 1, self.embed_dim), initializer="zeros", name="cls_token")
-        self.blocks = [AnySatPlainBlock(self.embed_dim, self.num_heads, mlp_ratio, name=f"block{i}")
-                       for i in range(self.depth)]
-        self.cross_pool = AnySatCrossPoolingBlock(self.embed_dim, self.num_heads, mlp_ratio, name="block_cross")
+        self.local_encoder = AnySatLocalEncoder(
+            self.embed_dim,
+            self.depth,
+            self.num_heads,
+            mlp_ratio,
+            name="spatial_encoder",
+        )
+        self.cls_token = self.add_weight(
+            shape=(1, 1, self.embed_dim), initializer="zeros", name="cls_token"
+        )
+        self.blocks = [
+            AnySatPlainBlock(
+                self.embed_dim, self.num_heads, mlp_ratio, name=f"block{i}"
+            )
+            for i in range(self.depth)
+        ]
+        self.cross_pool = AnySatCrossPoolingBlock(
+            self.embed_dim, self.num_heads, mlp_ratio, name="block_cross"
+        )
 
         self._build_meta()
 
@@ -525,16 +703,23 @@ class AnySatRelease(keras.Model):
                 se = max(1, self.scale // pc["reduce_scale"])
                 Htp = shape[1] // se
                 subpatch_count = se * se
-            side = int(round(subpatch_count ** 0.5))
+            side = int(round(subpatch_count**0.5))
             if side * side != subpatch_count:
-                raise ValueError(f"modality '{m}': subpatch count {subpatch_count} is not a perfect square")
-            pe, grid_aug = pos_embed_with_resolution(self.embed_dim, self.scale, ANYSAT_INPUT_RES[m])
+                raise ValueError(
+                    f"modality '{m}': subpatch count {subpatch_count} is not a perfect square"
+                )
+            pe, grid_aug = pos_embed_with_resolution(
+                self.embed_dim, self.scale, ANYSAT_INPUT_RES[m]
+            )
             if grid_aug != side:
                 raise ValueError(
                     f"modality '{m}': local grid size mismatch ({grid_aug} from resolution vs {side} "
-                    f"from actual subpatch count) - input_shapes/config are inconsistent for this modality")
+                    f"from actual subpatch count) - input_shapes/config are inconsistent for this modality"
+                )
             self._local_pos_embed[m] = ops.convert_to_tensor(pe)
-            flat_idx, num_buckets, Lq, Lk = _bucket_flat_offset_index(side, side, skip=1)
+            flat_idx, num_buckets, Lq, Lk = _bucket_flat_offset_index(
+                side, side, skip=1
+            )
             self._local_rpe[m] = (ops.convert_to_tensor(flat_idx), num_buckets, Lq, Lk)
 
             if m == "modis":
@@ -545,18 +730,29 @@ class AnySatRelease(keras.Model):
                 raise ValueError(
                     f"modality '{m}' produces a {Htp}x{Htp} patch grid, inconsistent with "
                     f"{num_patches_side}x{num_patches_side} from an earlier modality - all modalities "
-                    f"must cover the same footprint at the same `scale`")
+                    f"must cover the same footprint at the same `scale`"
+                )
         self.num_patches_side = num_patches_side
         self._global_pos_embed = ops.convert_to_tensor(
-            pos_embed_with_scale(self.embed_dim, num_patches_side, self.scale, cls_token=True))
+            pos_embed_with_scale(
+                self.embed_dim, num_patches_side, self.scale, cls_token=True
+            )
+        )
         self._modis = "modis" in self.modalities
         self._n_modalities = len([m for m in self.modalities if m != "modis"])
         flat_idx, num_buckets, Lq, Lk = _bucket_flat_offset_index(
-            num_patches_side, num_patches_side, skip=1 + int(self._modis))
+            num_patches_side, num_patches_side, skip=1 + int(self._modis)
+        )
         self._cross_rpe = (ops.convert_to_tensor(flat_idx), num_buckets, Lq, Lk)
         self._cross_pos_embed_q = ops.convert_to_tensor(
-            pos_embed_with_scale(self.embed_dim, num_patches_side, self.scale,
-                                  cls_token=True, modis=self._modis))
+            pos_embed_with_scale(
+                self.embed_dim,
+                num_patches_side,
+                self.scale,
+                cls_token=True,
+                modis=self._modis,
+            )
+        )
 
     def call(self, inputs):
         modality_order = [m for m in self.modalities if m in inputs]
@@ -571,8 +767,14 @@ class AnySatRelease(keras.Model):
             proj = self.projectors[m]
             tokens = proj(*raw) if isinstance(raw, (tuple, list)) else proj(raw)
             flat_idx, num_buckets, Lq, Lk = self._local_rpe[m]
-            pooled = self.local_encoder(tokens, pos_embed=self._local_pos_embed[m],
-                                         flat_idx=flat_idx, num_buckets=num_buckets, Lq=Lq, Lk=Lk)
+            pooled = self.local_encoder(
+                tokens,
+                pos_embed=self._local_pos_embed[m],
+                flat_idx=flat_idx,
+                num_buckets=num_buckets,
+                Lq=Lq,
+                Lk=Lk,
+            )
             if m == "modis":
                 modis_tokens = pooled
                 if batch_size is None:
@@ -583,8 +785,10 @@ class AnySatRelease(keras.Model):
                 batch_size = ops.shape(pooled)[0]
                 patch_tokens[m] = pooled + self._global_pos_embed[None, 1:, :]
 
-        cls = ops.broadcast_to(self.cls_token + self._global_pos_embed[None, :1, :],
-                                (batch_size, 1, self.embed_dim))
+        cls = ops.broadcast_to(
+            self.cls_token + self._global_pos_embed[None, :1, :],
+            (batch_size, 1, self.embed_dim),
+        )
         seq = [cls]
         if modis_tokens is not None:
             seq.append(ops.reshape(modis_tokens, (batch_size, 1, self.embed_dim)))
@@ -598,11 +802,20 @@ class AnySatRelease(keras.Model):
 
         flat_idx, num_buckets, Lq, Lk = self._cross_rpe
         pos_embed_q = self._cross_pos_embed_q
-        tokens = self.cross_pool(tokens, pos_embed_q=pos_embed_q, n_modalities=self._n_modalities,
-                                  num_patches_side=self.num_patches_side, flat_idx=flat_idx,
-                                  num_buckets=num_buckets, modis=self._modis)
+        tokens = self.cross_pool(
+            tokens,
+            pos_embed_q=pos_embed_q,
+            n_modalities=self._n_modalities,
+            num_patches_side=self.num_patches_side,
+            flat_idx=flat_idx,
+            num_buckets=num_buckets,
+            modis=self._modis,
+        )
 
         if self.output_mode == "tile":
             return tokens[:, 0, :]
         patch = tokens[:, 1:, :]
-        return ops.reshape(patch, (batch_size, self.num_patches_side, self.num_patches_side, self.embed_dim))
+        return ops.reshape(
+            patch,
+            (batch_size, self.num_patches_side, self.num_patches_side, self.embed_dim),
+        )

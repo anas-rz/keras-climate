@@ -4,7 +4,11 @@ import keras
 
 from keras_climate.foundation.croma import CROMA, get_2d_alibi
 from keras_climate.weights import WeightConverter
-from keras_climate.weights.mappings import load_croma_checkpoint, convert_croma_state_dict, build_croma_identity_mapper
+from keras_climate.weights.mappings import (
+    load_croma_checkpoint,
+    convert_croma_state_dict,
+    build_croma_identity_mapper,
+)
 
 
 def test_alibi_bias_shape_and_symmetry():
@@ -44,8 +48,12 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         def __init__(self, dim, mult=4):
             super().__init__()
             self.input_norm = nn.LayerNorm(dim)
-            self.net = nn.Sequential(nn.Linear(dim, int(dim * mult)), nn.GELU(), nn.Dropout(0.0),
-                                      nn.Linear(int(dim * mult), dim))
+            self.net = nn.Sequential(
+                nn.Linear(dim, int(dim * mult)),
+                nn.GELU(),
+                nn.Dropout(0.0),
+                nn.Linear(int(dim * mult), dim),
+            )
 
         def forward(self, x):
             return self.net(self.input_norm(x))
@@ -55,7 +63,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             super().__init__()
             self.num_heads = num_heads
             dim_head = dim // num_heads
-            self.scale = dim_head ** -0.5
+            self.scale = dim_head**-0.5
             self.to_qkv = nn.Linear(dim, dim * 3, bias=False)
             self.to_out = nn.Linear(dim, dim)
             self.input_norm = nn.LayerNorm(dim)
@@ -63,8 +71,13 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         def forward(self, x, bias):
             x = self.input_norm(x)
             q, k, v = self.to_qkv(x).chunk(3, dim=-1)
-            q, k, v = (rearrange(t, "b n (h d) -> b h n d", h=self.num_heads) for t in (q, k, v))
-            attn = (einsum(q, k, "b h i d, b h j d -> b h i j") * self.scale + bias).softmax(dim=-1)
+            q, k, v = (
+                rearrange(t, "b n (h d) -> b h n d", h=self.num_heads)
+                for t in (q, k, v)
+            )
+            attn = (
+                einsum(q, k, "b h i d, b h j d -> b h i j") * self.scale + bias
+            ).softmax(dim=-1)
             out = einsum(attn, v, "b h i j, b h j d -> b h i d")
             return self.to_out(rearrange(out, "b h n d -> b n (h d)"))
 
@@ -73,7 +86,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             super().__init__()
             self.num_heads = num_heads
             dim_head = dim // num_heads
-            self.scale = dim_head ** -0.5
+            self.scale = dim_head**-0.5
             self.to_q = nn.Linear(dim, dim, bias=False)
             self.to_k = nn.Linear(dim, dim, bias=False)
             self.to_v = nn.Linear(dim, dim, bias=False)
@@ -85,15 +98,21 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             q = rearrange(self.to_q(xn), "b n (h d) -> b h n d", h=self.num_heads)
             k = rearrange(self.to_k(cn), "b n (h d) -> b h n d", h=self.num_heads)
             v = rearrange(self.to_v(cn), "b n (h d) -> b h n d", h=self.num_heads)
-            attn = (einsum(q, k, "b h i d, b h j d -> b h i j") * self.scale + bias).softmax(dim=-1)
+            attn = (
+                einsum(q, k, "b h i d, b h j d -> b h i j") * self.scale + bias
+            ).softmax(dim=-1)
             out = einsum(attn, v, "b h i j, b h j d -> b h i d")
             return self.to_out(rearrange(out, "b h n d -> b n (h d)"))
 
     class BaseTransformer(nn.Module):
         def __init__(self, dim, depth, num_heads):
             super().__init__()
-            self.layers = nn.ModuleList([nn.ModuleList([Attention(dim, num_heads), FFN(dim)])
-                                          for _ in range(depth)])
+            self.layers = nn.ModuleList(
+                [
+                    nn.ModuleList([Attention(dim, num_heads), FFN(dim)])
+                    for _ in range(depth)
+                ]
+            )
             self.norm_out = nn.LayerNorm(dim)
 
         def forward(self, x, bias):
@@ -105,9 +124,18 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     class BaseTransformerCrossAttn(nn.Module):
         def __init__(self, dim, depth, num_heads):
             super().__init__()
-            self.layers = nn.ModuleList([
-                nn.ModuleList([Attention(dim, num_heads), CrossAttention(dim, num_heads), FFN(dim)])
-                for _ in range(depth)])
+            self.layers = nn.ModuleList(
+                [
+                    nn.ModuleList(
+                        [
+                            Attention(dim, num_heads),
+                            CrossAttention(dim, num_heads),
+                            FFN(dim),
+                        ]
+                    )
+                    for _ in range(depth)
+                ]
+            )
             self.norm_out = nn.LayerNorm(dim)
 
         def forward(self, x, context, bias):
@@ -125,18 +153,33 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.transformer = BaseTransformer(dim, depth, num_heads)
 
         def forward(self, imgs, bias):
-            x = rearrange(imgs, "b c (h i) (w j) -> b (h w) (c i j)", i=self.patch_size, j=self.patch_size)
+            x = rearrange(
+                imgs,
+                "b c (h i) (w j) -> b (h w) (c i j)",
+                i=self.patch_size,
+                j=self.patch_size,
+            )
             return self.transformer(self.linear_input(x), bias)
 
     class TorchCROMA(nn.Module):
-        def __init__(self, dim, depth, num_heads, patch_size, sar_chans=2, opt_chans=12):
+        def __init__(
+            self, dim, depth, num_heads, patch_size, sar_chans=2, opt_chans=12
+        ):
             super().__init__()
             self.s1_encoder = ViT(dim, depth // 2, sar_chans, patch_size, num_heads)
             self.s2_encoder = ViT(dim, depth, opt_chans, patch_size, num_heads)
-            self.s1_GAP_FFN = nn.Sequential(nn.LayerNorm(dim), nn.Linear(dim, 4 * dim), nn.GELU(),
-                                             nn.Linear(4 * dim, dim))
-            self.s2_GAP_FFN = nn.Sequential(nn.LayerNorm(dim), nn.Linear(dim, 4 * dim), nn.GELU(),
-                                             nn.Linear(4 * dim, dim))
+            self.s1_GAP_FFN = nn.Sequential(
+                nn.LayerNorm(dim),
+                nn.Linear(dim, 4 * dim),
+                nn.GELU(),
+                nn.Linear(4 * dim, dim),
+            )
+            self.s2_GAP_FFN = nn.Sequential(
+                nn.LayerNorm(dim),
+                nn.Linear(dim, 4 * dim),
+                nn.GELU(),
+                nn.Linear(4 * dim, dim),
+            )
             self.joint_encoder = BaseTransformerCrossAttn(dim, depth // 2, num_heads)
 
         def forward(self, sar, opt, bias):
@@ -157,21 +200,36 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             p.normal_(0.0, 0.3)
 
     flat = {}
-    for name, submodule in [("s1_encoder", torch_model.s1_encoder), ("s2_encoder", torch_model.s2_encoder)]:
+    for name, submodule in [
+        ("s1_encoder", torch_model.s1_encoder),
+        ("s2_encoder", torch_model.s2_encoder),
+    ]:
         for k, v in submodule.state_dict().items():
             flat[f"{name}.{k}"] = v.detach().numpy()
-    for name, submodule in [("s1_GAP_FFN", torch_model.s1_GAP_FFN), ("s2_GAP_FFN", torch_model.s2_GAP_FFN),
-                             ("joint_encoder", torch_model.joint_encoder)]:
+    for name, submodule in [
+        ("s1_GAP_FFN", torch_model.s1_GAP_FFN),
+        ("s2_GAP_FFN", torch_model.s2_GAP_FFN),
+        ("joint_encoder", torch_model.joint_encoder),
+    ]:
         for k, v in submodule.state_dict().items():
             flat[f"{name}.{k}"] = v.detach().numpy()
 
     translated = convert_croma_state_dict(flat, encoder_depth=depth)
 
-    from keras_climate.foundation.croma import ModalityEncoder, CrossAttentionFusion, gap_ffn
+    from keras_climate.foundation.croma import (
+        ModalityEncoder,
+        CrossAttentionFusion,
+        gap_ffn,
+    )
+
     sar_in = keras.Input((img_size, img_size, 2), name="sar")
     opt_in = keras.Input((img_size, img_size, 12), name="optical")
-    sar_encoder = ModalityEncoder(dim, depth // 2, 2, patch_size, num_heads, name="s1_encoder")
-    opt_encoder = ModalityEncoder(dim, depth, 12, patch_size, num_heads, name="s2_encoder")
+    sar_encoder = ModalityEncoder(
+        dim, depth // 2, 2, patch_size, num_heads, name="s1_encoder"
+    )
+    opt_encoder = ModalityEncoder(
+        dim, depth, 12, patch_size, num_heads, name="s2_encoder"
+    )
     attn_bias = keras.ops.convert_to_tensor(get_2d_alibi(num_heads, grid))
     sar_tokens = sar_encoder(sar_in, attn_bias)
     opt_tokens = opt_encoder(opt_in, attn_bias)
@@ -181,11 +239,14 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     opt_pool = keras.layers.GlobalAveragePooling1D(name="optical_pool")(opt_tokens)
     sar_repr = gap_ffn(dim, name="GAP_FFN_s1")(sar_pool)
     opt_repr = gap_ffn(dim, name="GAP_FFN_s2")(opt_pool)
-    keras_model = keras.Model([sar_in, opt_in],
-                               {"sar_repr": sar_repr, "optical_repr": opt_repr, "joint_tokens": joint_tokens})
+    keras_model = keras.Model(
+        [sar_in, opt_in],
+        {"sar_repr": sar_repr, "optical_repr": opt_repr, "joint_tokens": joint_tokens},
+    )
 
-    report = WeightConverter(keras_model, translated, build_croma_identity_mapper()).convert(
-        strict=True, verbose=False)
+    report = WeightConverter(
+        keras_model, translated, build_croma_identity_mapper()
+    ).convert(strict=True, verbose=False)
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
@@ -194,16 +255,25 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     bias_t = torch.from_numpy(get_2d_alibi(num_heads, grid))
     with torch.no_grad():
         torch_sar_repr, torch_opt_repr, torch_joint = torch_model(
-            torch.from_numpy(x_sar), torch.from_numpy(x_opt), bias_t)
+            torch.from_numpy(x_sar), torch.from_numpy(x_opt), bias_t
+        )
 
     keras_sar = np.transpose(x_sar, (0, 2, 3, 1))
     keras_opt = np.transpose(x_opt, (0, 2, 3, 1))
     out = keras_model([keras_sar, keras_opt])
 
-    d_sar = np.abs(torch_sar_repr.numpy() - keras.ops.convert_to_numpy(out["sar_repr"])).max()
-    d_opt = np.abs(torch_opt_repr.numpy() - keras.ops.convert_to_numpy(out["optical_repr"])).max()
-    d_joint = np.abs(torch_joint.numpy() - keras.ops.convert_to_numpy(out["joint_tokens"])).max()
-    assert max(d_sar, d_opt, d_joint) < 1e-3, f"CROMA weight port numerical mismatch: {d_sar}, {d_opt}, {d_joint}"
+    d_sar = np.abs(
+        torch_sar_repr.numpy() - keras.ops.convert_to_numpy(out["sar_repr"])
+    ).max()
+    d_opt = np.abs(
+        torch_opt_repr.numpy() - keras.ops.convert_to_numpy(out["optical_repr"])
+    ).max()
+    d_joint = np.abs(
+        torch_joint.numpy() - keras.ops.convert_to_numpy(out["joint_tokens"])
+    ).max()
+    assert (
+        max(d_sar, d_opt, d_joint) < 1e-3
+    ), f"CROMA weight port numerical mismatch: {d_sar}, {d_opt}, {d_joint}"
 
 
 @pytest.mark.pretrained

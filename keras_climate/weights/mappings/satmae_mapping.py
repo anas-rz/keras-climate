@@ -2,7 +2,6 @@ import re
 
 from keras_climate.weights.mappings.vit_mapping import build_vit_mapper
 
-
 EXTRA_EMBED_KEYS = {
     "multispectral": [(r"^channel_embed$", "{prefix}/group_embed")],
     "temporal": [(r"^temporal_embed$", "{prefix}/temporal_embed")],
@@ -10,7 +9,9 @@ EXTRA_EMBED_KEYS = {
 
 
 def build_satmae_encoder_mapper(keras_prefix="satmae_encoder", mode="single"):
-    extra_rules = [(p, r.format(prefix=keras_prefix)) for p, r in EXTRA_EMBED_KEYS.get(mode, [])]
+    extra_rules = [
+        (p, r.format(prefix=keras_prefix)) for p, r in EXTRA_EMBED_KEYS.get(mode, [])
+    ]
     return build_vit_mapper(keras_prefix, extra_rules=extra_rules)
 
 
@@ -60,7 +61,9 @@ def build_satmae_decoder_mapper(keras_prefix="satmae_decoder", torch_prefix=""):
     return mapper
 
 
-def build_satmae_mapper(encoder_prefix="satmae_encoder", decoder_prefix="satmae_decoder", mode="single"):
+def build_satmae_mapper(
+    encoder_prefix="satmae_encoder", decoder_prefix="satmae_decoder", mode="single"
+):
     encoder_mapper = build_satmae_encoder_mapper(encoder_prefix, mode)
     decoder_mapper = build_satmae_decoder_mapper(decoder_prefix)
 

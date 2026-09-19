@@ -5,8 +5,14 @@ from keras_climate.utils.layers import MLP, rfft2_hw, irfft2_hw, unpatchify_2d
 
 class AFNO2D(layers.Layer):
 
-    def __init__(self, hidden_size, num_blocks=8, sparsity_threshold=0.01,
-                 hidden_size_factor=1, **kwargs):
+    def __init__(
+        self,
+        hidden_size,
+        num_blocks=8,
+        sparsity_threshold=0.01,
+        hidden_size_factor=1,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.hidden_size = hidden_size
         self.num_blocks = num_blocks
@@ -18,9 +24,13 @@ class AFNO2D(layers.Layer):
         scale = 0.02
         bs, hf, nb = self.block_size, self.hidden_size_factor, self.num_blocks
         init = keras.initializers.RandomNormal(stddev=scale)
-        self.w1 = self.add_weight(shape=(2, nb, bs, bs * hf), initializer=init, name="w1")
+        self.w1 = self.add_weight(
+            shape=(2, nb, bs, bs * hf), initializer=init, name="w1"
+        )
         self.b1 = self.add_weight(shape=(2, nb, bs * hf), initializer=init, name="b1")
-        self.w2 = self.add_weight(shape=(2, nb, bs * hf, bs), initializer=init, name="w2")
+        self.w2 = self.add_weight(
+            shape=(2, nb, bs * hf, bs), initializer=init, name="w2"
+        )
         self.b2 = self.add_weight(shape=(2, nb, bs), initializer=init, name="b2")
         super().build(input_shape)
 
@@ -69,12 +79,24 @@ class AFNO2D(layers.Layer):
 
 class AFNOBlock(layers.Layer):
 
-    def __init__(self, hidden_size, num_blocks=8, mlp_ratio=4.0, sparsity_threshold=0.01,
-                 hidden_size_factor=1, **kwargs):
+    def __init__(
+        self,
+        hidden_size,
+        num_blocks=8,
+        mlp_ratio=4.0,
+        sparsity_threshold=0.01,
+        hidden_size_factor=1,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.norm1 = layers.LayerNormalization(epsilon=1e-6, name="norm1")
-        self.filter = AFNO2D(hidden_size, num_blocks, sparsity_threshold, hidden_size_factor,
-                              name="filter")
+        self.filter = AFNO2D(
+            hidden_size,
+            num_blocks,
+            sparsity_threshold,
+            hidden_size_factor,
+            name="filter",
+        )
         self.norm2 = layers.LayerNormalization(epsilon=1e-6, name="norm2")
         self.mlp = MLP(int(hidden_size * mlp_ratio), hidden_size, name="mlp")
 
@@ -84,12 +106,21 @@ class AFNOBlock(layers.Layer):
         return x
 
 
-def AFNOOperator(input_shape=(64, 64, 3), out_channels=3, patch_size=8, embed_dim=256,
-                  depth=8, num_blocks=8, mlp_ratio=4.0, name="afno_operator"):
+def AFNOOperator(
+    input_shape=(64, 64, 3),
+    out_channels=3,
+    patch_size=8,
+    embed_dim=256,
+    depth=8,
+    num_blocks=8,
+    mlp_ratio=4.0,
+    name="afno_operator",
+):
     grid = input_shape[0] // patch_size
     inputs = keras.Input(shape=input_shape, name="field")
-    x = layers.Conv2D(embed_dim, kernel_size=patch_size, strides=patch_size,
-                       name="patch_embed_proj")(inputs)
+    x = layers.Conv2D(
+        embed_dim, kernel_size=patch_size, strides=patch_size, name="patch_embed_proj"
+    )(inputs)
 
     for i in range(depth):
         x = AFNOBlock(embed_dim, num_blocks, mlp_ratio, name=f"block{i}")(x)

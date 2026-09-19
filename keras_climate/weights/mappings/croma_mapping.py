@@ -12,7 +12,9 @@ def load_croma_checkpoint(path):
         for k, v in sub_sd.items():
             if k.endswith("num_batches_tracked"):
                 continue
-            flat[f"{submodule}.{k}"] = v.detach().cpu().numpy() if hasattr(v, "detach") else np.asarray(v)
+            flat[f"{submodule}.{k}"] = (
+                v.detach().cpu().numpy() if hasattr(v, "detach") else np.asarray(v)
+            )
     return flat
 
 
@@ -31,7 +33,9 @@ def _self_block_rules(torch_prefix, keras_prefix, depth):
         out[f"{tp}.1.net.0.bias"] = f"{kp}/ffn/fc1/bias"
         out[f"{tp}.1.net.3.weight"] = f"{kp}/ffn/fc2/kernel"
         out[f"{tp}.1.net.3.bias"] = f"{kp}/ffn/fc2/bias"
-    out[f"{torch_prefix}.transformer.norm_out.weight"] = f"{keras_prefix}/norm_out/gamma"
+    out[f"{torch_prefix}.transformer.norm_out.weight"] = (
+        f"{keras_prefix}/norm_out/gamma"
+    )
     out[f"{torch_prefix}.transformer.norm_out.bias"] = f"{keras_prefix}/norm_out/beta"
     return out
 
@@ -89,7 +93,9 @@ def convert_croma_state_dict(flat_state_dict, encoder_depth=12):
     key_map.update(_gap_ffn_rules("s1_GAP_FFN", "GAP_FFN_s1"))
     key_map.update(_gap_ffn_rules("s2_GAP_FFN", "GAP_FFN_s2"))
 
-    key_map.update(_cross_block_rules("joint_encoder", "cross_encoder", encoder_depth // 2))
+    key_map.update(
+        _cross_block_rules("joint_encoder", "cross_encoder", encoder_depth // 2)
+    )
 
     out = {}
     for torch_key, keras_key in key_map.items():

@@ -21,8 +21,10 @@ def _swin_block_rules(torch_prefix, keras_prefix):
         (rf"^{tp}\.attn\.qkv\.bias$", f"{keras_prefix}/attn/qkv/bias"),
         (rf"^{tp}\.attn\.proj\.weight$", f"{keras_prefix}/attn/proj/kernel"),
         (rf"^{tp}\.attn\.proj\.bias$", f"{keras_prefix}/attn/proj/bias"),
-        (rf"^{tp}\.attn\.relative_position_bias_table$",
-         f"{keras_prefix}/attn/relative_position_bias_table"),
+        (
+            rf"^{tp}\.attn\.relative_position_bias_table$",
+            f"{keras_prefix}/attn/relative_position_bias_table",
+        ),
         (rf"^{tp}\.norm2\.weight$", f"{keras_prefix}/norm2/gamma"),
         (rf"^{tp}\.norm2\.bias$", f"{keras_prefix}/norm2/beta"),
         (rf"^{tp}\.mlp\.fc1\.weight$", f"{keras_prefix}/mlp/fc1/kernel"),
@@ -34,8 +36,12 @@ def _swin_block_rules(torch_prefix, keras_prefix):
 
 def build_ringmo_encoder_mapper(depths, keras_prefix="ringmo_encoder"):
     rules = []
-    rules += _conv_bn_act_rules("patch_embed.conv1", f"{keras_prefix}/patch_embed/conv1")
-    rules += _conv_bn_act_rules("patch_embed.conv2", f"{keras_prefix}/patch_embed/conv2")
+    rules += _conv_bn_act_rules(
+        "patch_embed.conv1", f"{keras_prefix}/patch_embed/conv1"
+    )
+    rules += _conv_bn_act_rules(
+        "patch_embed.conv2", f"{keras_prefix}/patch_embed/conv2"
+    )
     rules += [
         (r"^patch_embed\.conv3\.weight$", f"{keras_prefix}/patch_embed/conv3/kernel"),
         (r"^patch_embed\.conv3\.bias$", f"{keras_prefix}/patch_embed/conv3/bias"),
@@ -47,15 +53,23 @@ def build_ringmo_encoder_mapper(depths, keras_prefix="ringmo_encoder"):
 
     for i, depth in enumerate(depths):
         for j in range(depth):
-            rules += _swin_block_rules(f"stages.{i}.blocks.{j}", f"{keras_prefix}/stage{i}/block{j}")
+            rules += _swin_block_rules(
+                f"stages.{i}.blocks.{j}", f"{keras_prefix}/stage{i}/block{j}"
+            )
         if i < len(depths) - 1:
             rules += [
-                (rf"^stages\.{i}\.downsample\.reduction\.weight$",
-                 f"{keras_prefix}/stage{i}/downsample/reduction/kernel"),
-                (rf"^stages\.{i}\.downsample\.norm\.weight$",
-                 f"{keras_prefix}/stage{i}/downsample/norm/gamma"),
-                (rf"^stages\.{i}\.downsample\.norm\.bias$",
-                 f"{keras_prefix}/stage{i}/downsample/norm/beta"),
+                (
+                    rf"^stages\.{i}\.downsample\.reduction\.weight$",
+                    f"{keras_prefix}/stage{i}/downsample/reduction/kernel",
+                ),
+                (
+                    rf"^stages\.{i}\.downsample\.norm\.weight$",
+                    f"{keras_prefix}/stage{i}/downsample/norm/gamma",
+                ),
+                (
+                    rf"^stages\.{i}\.downsample\.norm\.bias$",
+                    f"{keras_prefix}/stage{i}/downsample/norm/beta",
+                ),
             ]
 
     compiled = [(re.compile(p), r) for p, r in rules]
@@ -85,7 +99,9 @@ def build_ringmo_decoder_mapper(keras_prefix="ringmo_decoder"):
     return mapper
 
 
-def build_ringmo_mapper(depths, encoder_prefix="ringmo_encoder", decoder_prefix="ringmo_decoder"):
+def build_ringmo_mapper(
+    depths, encoder_prefix="ringmo_encoder", decoder_prefix="ringmo_decoder"
+):
     encoder_mapper = build_ringmo_encoder_mapper(depths, encoder_prefix)
     decoder_mapper = build_ringmo_decoder_mapper(decoder_prefix)
 

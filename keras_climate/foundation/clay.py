@@ -8,22 +8,29 @@ _LN_EPS = 1e-5
 
 
 def posemb_sincos_1d(num_or_values, dim, temperature=10000.0):
-    values = np.arange(num_or_values, dtype=np.float32) if isinstance(num_or_values, int) else \
-        np.asarray(num_or_values, dtype=np.float32)
+    values = (
+        np.arange(num_or_values, dtype=np.float32)
+        if isinstance(num_or_values, int)
+        else np.asarray(num_or_values, dtype=np.float32)
+    )
     omega = np.arange(dim // 2, dtype=np.float32) / (dim // 2 - 1)
-    omega = 1.0 / (temperature ** omega)
+    omega = 1.0 / (temperature**omega)
     scaled = values[:, None] * omega[None, :]
     return np.concatenate([np.sin(scaled), np.cos(scaled)], axis=1).astype(np.float32)
 
 
 def posemb_sincos_2d_with_gsd(h, w, dim, gsd=1.0, temperature=10000.0):
     assert dim % 4 == 0
-    y, x = np.meshgrid(np.arange(h, dtype=np.float32), np.arange(w, dtype=np.float32), indexing="ij")
+    y, x = np.meshgrid(
+        np.arange(h, dtype=np.float32), np.arange(w, dtype=np.float32), indexing="ij"
+    )
     omega = np.arange(dim // 4, dtype=np.float32) / (dim // 4 - 1)
     omega = 1.0 / (temperature ** (2 * omega / dim)) * gsd
     y = y.reshape(-1)[:, None] * omega[None, :]
     x = x.reshape(-1)[:, None] * omega[None, :]
-    return np.concatenate([np.sin(x), np.cos(x), np.sin(y), np.cos(y)], axis=1).astype(np.float32)
+    return np.concatenate([np.sin(x), np.cos(x), np.sin(y), np.cos(y)], axis=1).astype(
+        np.float32
+    )
 
 
 class FCBlock(layers.Layer):
@@ -50,7 +57,7 @@ class _TorchStyleEncoderLayer(layers.Layer):
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
         self.mlp_dim = mlp_dim
 
     def build(self, input_shape):
@@ -65,9 +72,13 @@ class _TorchStyleEncoderLayer(layers.Layer):
     def call(self, x):
         B, N = ops.shape(x)[0], ops.shape(x)[1]
         qkv = self.in_proj(x)
-        qkv = ops.transpose(ops.reshape(qkv, (B, N, 3, self.num_heads, self.head_dim)), (2, 0, 3, 1, 4))
+        qkv = ops.transpose(
+            ops.reshape(qkv, (B, N, 3, self.num_heads, self.head_dim)), (2, 0, 3, 1, 4)
+        )
         q, k, v = qkv[0], qkv[1], qkv[2]
-        attn = ops.softmax(ops.matmul(q, ops.transpose(k, (0, 1, 3, 2))) * self.scale, axis=-1)
+        attn = ops.softmax(
+            ops.matmul(q, ops.transpose(k, (0, 1, 3, 2))) * self.scale, axis=-1
+        )
         out = ops.matmul(attn, v)
         out = ops.reshape(ops.transpose(out, (0, 2, 1, 3)), (B, N, self.dim))
         out = self.out_proj(out)
@@ -79,7 +90,9 @@ class _TorchStyleEncoderLayer(layers.Layer):
 
 class WavesTransformer(layers.Layer):
 
-    def __init__(self, wave_dim, output_dim, num_latent_tokens, embed_dim, num_heads=4, **kwargs):
+    def __init__(
+        self, wave_dim, output_dim, num_latent_tokens, embed_dim, num_heads=4, **kwargs
+    ):
         super().__init__(**kwargs)
         self.wave_dim = wave_dim
         self.output_dim = output_dim
@@ -88,22 +101,28 @@ class WavesTransformer(layers.Layer):
         self.num_heads = num_heads
 
     def build(self, input_shape):
-        self.encoder_layer = _TorchStyleEncoderLayer(self.wave_dim, self.num_heads,
-                                                       2048, name="encoder_layer")
+        self.encoder_layer = _TorchStyleEncoderLayer(
+            self.wave_dim, self.num_heads, 2048, name="encoder_layer"
+        )
         self.fc_weight = layers.Dense(self.output_dim, name="fc_weight")
         self.fc_bias = layers.Dense(self.embed_dim, name="fc_bias")
         self.weight_tokens = self.add_weight(
-            shape=(self.num_latent_tokens, self.wave_dim), initializer="random_normal",
-            name="weight_tokens")
-        self.bias_token = self.add_weight(shape=(1, self.wave_dim), initializer="random_normal",
-                                           name="bias_token")
+            shape=(self.num_latent_tokens, self.wave_dim),
+            initializer="random_normal",
+            name="weight_tokens",
+        )
+        self.bias_token = self.add_weight(
+            shape=(1, self.wave_dim), initializer="random_normal", name="bias_token"
+        )
         super().build(input_shape)
 
     def call(self, x):
         seq = ops.concatenate([self.weight_tokens, x, self.bias_token], axis=0)[None]
         out = self.encoder_layer(seq)[0]
         num_bands = ops.shape(x)[0]
-        wave_slice = out[self.num_latent_tokens:self.num_latent_tokens + num_bands] + x
+        wave_slice = (
+            out[self.num_latent_tokens : self.num_latent_tokens + num_bands] + x
+        )
         weights = self.fc_weight(wave_slice)
         bias = self.fc_bias(out[-1:])[0]
         return weights, bias
@@ -120,9 +139,13 @@ class DynamicEmbedding(layers.Layer):
         self.output_dim = patch_size * patch_size * embed_dim
 
     def build(self, input_shape):
-        self.weight_generator = WavesTransformer(self.wave_dim, self.output_dim,
-                                                   self.num_latent_tokens, self.embed_dim,
-                                                   name="weight_generator")
+        self.weight_generator = WavesTransformer(
+            self.wave_dim,
+            self.output_dim,
+            self.num_latent_tokens,
+            self.embed_dim,
+            name="weight_generator",
+        )
         self.fclayer = FCBlock(self.wave_dim, name="fclayer")
         super().build(input_shape)
 
@@ -145,7 +168,7 @@ class DynamicEmbedding(layers.Layer):
 
 def _sincos_1d(waves, dim, temperature=10000.0):
     omega = ops.arange(dim // 2, dtype="float32") / (dim // 2 - 1)
-    omega = 1.0 / (temperature ** omega)
+    omega = 1.0 / (temperature**omega)
     scaled = waves[:, None] * omega[None, :]
     return ops.concatenate([ops.sin(scaled), ops.cos(scaled)], axis=1)
 
@@ -158,7 +181,7 @@ class ClayTransformerBlock(layers.Layer):
         self.num_heads = num_heads
         self.dim_head = dim_head
         self.inner_dim = dim_head * num_heads
-        self.scale = dim_head ** -0.5
+        self.scale = dim_head**-0.5
         self.mlp_dim = mlp_dim
 
     def build(self, input_shape):
@@ -174,9 +197,13 @@ class ClayTransformerBlock(layers.Layer):
         B, N = ops.shape(x)[0], ops.shape(x)[1]
         xn = self.attn_norm(x)
         qkv = self.to_qkv(xn)
-        qkv = ops.transpose(ops.reshape(qkv, (B, N, 3, self.num_heads, self.dim_head)), (2, 0, 3, 1, 4))
+        qkv = ops.transpose(
+            ops.reshape(qkv, (B, N, 3, self.num_heads, self.dim_head)), (2, 0, 3, 1, 4)
+        )
         q, k, v = qkv[0], qkv[1], qkv[2]
-        attn = ops.softmax(ops.matmul(q, ops.transpose(k, (0, 1, 3, 2))) * self.scale, axis=-1)
+        attn = ops.softmax(
+            ops.matmul(q, ops.transpose(k, (0, 1, 3, 2))) * self.scale, axis=-1
+        )
         out = ops.matmul(attn, v)
         out = ops.reshape(ops.transpose(out, (0, 2, 1, 3)), (B, N, self.inner_dim))
         x = self.to_out(out) + x
@@ -189,20 +216,41 @@ class ClayTransformerBlock(layers.Layer):
 
 class ClayEncoder(keras.Model):
 
-    def __init__(self, img_size=224, patch_size=8, embed_dim=768, depth=12, num_heads=12,
-                 dim_head=64, mlp_ratio=4.0, wave_dim=128, num_latent_tokens=128,
-                 name="clay_encoder", **kwargs):
+    def __init__(
+        self,
+        img_size=224,
+        patch_size=8,
+        embed_dim=768,
+        depth=12,
+        num_heads=12,
+        dim_head=64,
+        mlp_ratio=4.0,
+        wave_dim=128,
+        num_latent_tokens=128,
+        name="clay_encoder",
+        **kwargs,
+    ):
         super().__init__(name=name, **kwargs)
         self.embed_dim = embed_dim
         self.patch_size = patch_size
         self.grid = img_size // patch_size
 
-        self.cls_token = self.add_weight(shape=(1, 1, embed_dim), initializer="random_normal",
-                                          name="cls_token")
-        self.patch_embedding = DynamicEmbedding(wave_dim, num_latent_tokens, patch_size, embed_dim,
-                                                 name="patch_embedding")
-        self.blocks = [ClayTransformerBlock(embed_dim, num_heads, dim_head, int(embed_dim * mlp_ratio),
-                                             name=f"block{i}") for i in range(depth)]
+        self.cls_token = self.add_weight(
+            shape=(1, 1, embed_dim), initializer="random_normal", name="cls_token"
+        )
+        self.patch_embedding = DynamicEmbedding(
+            wave_dim, num_latent_tokens, patch_size, embed_dim, name="patch_embedding"
+        )
+        self.blocks = [
+            ClayTransformerBlock(
+                embed_dim,
+                num_heads,
+                dim_head,
+                int(embed_dim * mlp_ratio),
+                name=f"block{i}",
+            )
+            for i in range(depth)
+        ]
         self.norm = layers.LayerNormalization(epsilon=_LN_EPS, name="norm")
 
     def call(self, inputs, gsd=1.0, training=False):
@@ -212,11 +260,15 @@ class ClayEncoder(keras.Model):
 
         patches, _ = self.patch_embedding(pixels, waves)
 
-        pos = posemb_sincos_2d_with_gsd(self.grid, self.grid, self.embed_dim - 8, gsd=gsd)
+        pos = posemb_sincos_2d_with_gsd(
+            self.grid, self.grid, self.embed_dim - 8, gsd=gsd
+        )
         pos = ops.convert_to_tensor(pos)[None]
         B = ops.shape(patches)[0]
         pos = ops.broadcast_to(pos, (B, ops.shape(pos)[1], self.embed_dim - 8))
-        time_latlon = ops.broadcast_to(time_latlon[:, None, :], (B, ops.shape(pos)[1], 8))
+        time_latlon = ops.broadcast_to(
+            time_latlon[:, None, :], (B, ops.shape(pos)[1], 8)
+        )
         patches = patches + ops.concatenate([pos, time_latlon], axis=-1)
 
         cls = ops.broadcast_to(self.cls_token, (B, 1, self.embed_dim))
@@ -227,18 +279,30 @@ class ClayEncoder(keras.Model):
         return self.norm(tokens)
 
 
-def ClayClassifier(img_size=224, patch_size=8, embed_dim=768, depth=12, num_heads=12,
-                    num_bands=10, num_classes=10, name="clay_classifier"):
+def ClayClassifier(
+    img_size=224,
+    patch_size=8,
+    embed_dim=768,
+    depth=12,
+    num_heads=12,
+    num_bands=10,
+    num_classes=10,
+    name="clay_classifier",
+):
     pixels_in = keras.Input((img_size, img_size, num_bands), name="pixels")
     time_latlon_in = keras.Input((8,), name="time_latlon")
     waves_in = keras.Input((num_bands,), batch_size=1, name="waves")
 
-    encoder = ClayEncoder(img_size, patch_size, embed_dim, depth, num_heads, name="encoder")
-    tokens = encoder({
-        "pixels": pixels_in,
-        "waves": layers.Lambda(lambda t: t[0])(waves_in),
-        "time_latlon": time_latlon_in,
-    })
+    encoder = ClayEncoder(
+        img_size, patch_size, embed_dim, depth, num_heads, name="encoder"
+    )
+    tokens = encoder(
+        {
+            "pixels": pixels_in,
+            "waves": layers.Lambda(lambda t: t[0])(waves_in),
+            "time_latlon": time_latlon_in,
+        }
+    )
     cls_token = layers.Lambda(lambda t: t[:, 0], name="take_cls")(tokens)
     outputs = layers.Dense(num_classes, name="head")(cls_token)
     return keras.Model([pixels_in, time_latlon_in, waves_in], outputs, name=name)

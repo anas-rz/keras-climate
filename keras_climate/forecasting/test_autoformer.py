@@ -9,9 +9,19 @@ from keras_climate.weights.mappings import build_autoformer_mapper
 
 def test_builds_and_runs():
     seq_len, label_len, pred_len, num_channels = 48, 24, 12, 5
-    model = Autoformer(seq_len=seq_len, label_len=label_len, pred_len=pred_len,
-                        num_channels=num_channels, d_model=32, num_heads=4, d_ff=64,
-                        encoder_layers=2, decoder_layers=1, moving_avg=5, dropout=0.0)
+    model = Autoformer(
+        seq_len=seq_len,
+        label_len=label_len,
+        pred_len=pred_len,
+        num_channels=num_channels,
+        d_model=32,
+        num_heads=4,
+        d_ff=64,
+        encoder_layers=2,
+        decoder_layers=1,
+        moving_avg=5,
+        dropout=0.0,
+    )
     enc_x = np.random.randn(2, seq_len, num_channels).astype("float32")
     label_x = enc_x[:, -label_len:, :]
     y = keras.ops.convert_to_numpy(model([enc_x, label_x]))
@@ -160,8 +170,19 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return x, trend
 
     class TorchAutoformer(nn.Module):
-        def __init__(self, seq_len, label_len, pred_len, num_channels, d_model, num_heads,
-                     d_ff, encoder_layers, decoder_layers, moving_avg):
+        def __init__(
+            self,
+            seq_len,
+            label_len,
+            pred_len,
+            num_channels,
+            d_model,
+            num_heads,
+            d_ff,
+            encoder_layers,
+            decoder_layers,
+            moving_avg,
+        ):
             super().__init__()
             self.pred_len = pred_len
             self.label_len = label_len
@@ -170,17 +191,28 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             self.enc_embedding = TorchValueEmbedding(num_channels, d_model)
             self.dec_embedding = TorchValueEmbedding(num_channels, d_model)
             self.encoder_layers = nn.ModuleList(
-                [TorchEncoderLayer(d_model, num_heads, d_ff, moving_avg) for _ in range(encoder_layers)])
+                [
+                    TorchEncoderLayer(d_model, num_heads, d_ff, moving_avg)
+                    for _ in range(encoder_layers)
+                ]
+            )
             self.decoder_layers = nn.ModuleList(
-                [TorchDecoderLayer(d_model, num_heads, d_ff, num_channels, moving_avg)
-                 for _ in range(decoder_layers)])
+                [
+                    TorchDecoderLayer(
+                        d_model, num_heads, d_ff, num_channels, moving_avg
+                    )
+                    for _ in range(decoder_layers)
+                ]
+            )
             self.projection = nn.Linear(d_model, num_channels)
 
         def forward(self, enc_x, label_x):
             seasonal_init, trend_init = self.init_decomp(label_x)
             mean_trend = label_x.mean(dim=1, keepdim=True).repeat(1, self.pred_len, 1)
             trend_init_full = torch.cat([trend_init, mean_trend], dim=1)
-            zeros_seasonal = torch.zeros(label_x.shape[0], self.pred_len, self.num_channels)
+            zeros_seasonal = torch.zeros(
+                label_x.shape[0], self.pred_len, self.num_channels
+            )
             seasonal_init_full = torch.cat([seasonal_init, zeros_seasonal], dim=1)
 
             enc_out = self.enc_embedding(enc_x)
@@ -195,15 +227,25 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
             seasonal_out = self.projection(dec_out)
             out = seasonal_out + trend
-            return out[:, -self.pred_len:, :]
+            return out[:, -self.pred_len :, :]
 
     torch.manual_seed(0)
     seq_len, label_len, pred_len, num_channels = 32, 16, 8, 4
     d_model, num_heads, d_ff, moving_avg = 16, 2, 32, 5
     encoder_layers, decoder_layers = 2, 1
 
-    torch_model = TorchAutoformer(seq_len, label_len, pred_len, num_channels, d_model, num_heads,
-                                   d_ff, encoder_layers, decoder_layers, moving_avg)
+    torch_model = TorchAutoformer(
+        seq_len,
+        label_len,
+        pred_len,
+        num_channels,
+        d_model,
+        num_heads,
+        d_ff,
+        encoder_layers,
+        decoder_layers,
+        moving_avg,
+    )
     torch_model.eval()
     with torch.no_grad():
         for p in torch_model.parameters():
@@ -211,16 +253,31 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
 
     state_dict = {}
     for k, v in torch_model.state_dict().items():
-        k = k.replace("encoder_layers.", "encoder_layer").replace("decoder_layers.", "decoder_layer")
+        k = k.replace("encoder_layers.", "encoder_layer").replace(
+            "decoder_layers.", "decoder_layer"
+        )
         state_dict[k] = v.detach().numpy()
 
-    keras_model = Autoformer(seq_len=seq_len, label_len=label_len, pred_len=pred_len,
-                              num_channels=num_channels, d_model=d_model, num_heads=num_heads,
-                              d_ff=d_ff, encoder_layers=encoder_layers, decoder_layers=decoder_layers,
-                              moving_avg=moving_avg, dropout=0.0)
+    keras_model = Autoformer(
+        seq_len=seq_len,
+        label_len=label_len,
+        pred_len=pred_len,
+        num_channels=num_channels,
+        d_model=d_model,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        encoder_layers=encoder_layers,
+        decoder_layers=decoder_layers,
+        moving_avg=moving_avg,
+        dropout=0.0,
+    )
 
-    mapper = build_autoformer_mapper(encoder_layers=encoder_layers, decoder_layers=decoder_layers)
-    report = WeightConverter(keras_model, state_dict, mapper).convert(strict=True, verbose=False)
+    mapper = build_autoformer_mapper(
+        encoder_layers=encoder_layers, decoder_layers=decoder_layers
+    )
+    report = WeightConverter(keras_model, state_dict, mapper).convert(
+        strict=True, verbose=False
+    )
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 
@@ -228,9 +285,15 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     label_np = enc_np[:, -label_len:, :]
 
     with torch.no_grad():
-        torch_out = torch_model(torch.from_numpy(enc_np), torch.from_numpy(label_np)).numpy()
+        torch_out = torch_model(
+            torch.from_numpy(enc_np), torch.from_numpy(label_np)
+        ).numpy()
 
-    keras_out = keras.ops.convert_to_numpy(keras_model([enc_np, label_np], training=False))
+    keras_out = keras.ops.convert_to_numpy(
+        keras_model([enc_np, label_np], training=False)
+    )
 
     max_diff = np.abs(torch_out - keras_out).max()
-    assert max_diff < 1e-2, f"Autoformer weight port numerical mismatch: max abs diff {max_diff}"
+    assert (
+        max_diff < 1e-2
+    ), f"Autoformer weight port numerical mismatch: max abs diff {max_diff}"

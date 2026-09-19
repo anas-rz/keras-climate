@@ -2,11 +2,14 @@ import re
 
 import numpy as np
 
-from keras_climate.weights.mappings.convlstm_mapping import convert_convlstm_stack_state_dict
+from keras_climate.weights.mappings.convlstm_mapping import (
+    convert_convlstm_stack_state_dict,
+)
 
 
-def convert_metnet_state_dict(flat_state_dict, base_filters, num_dilated_convs=6,
-                               num_att_layers=4, num_upsample=2):
+def convert_metnet_state_dict(
+    flat_state_dict, base_filters, num_dilated_convs=6, num_att_layers=4, num_upsample=2
+):
     out = {}
 
     def copy(torch_key, keras_key):
@@ -20,11 +23,16 @@ def convert_metnet_state_dict(flat_state_dict, base_filters, num_dilated_convs=6
     copy("stem_bn.bn.running_mean", "stem_bn/bn/moving_mean")
     copy("stem_bn.bn.running_var", "stem_bn/bn/moving_variance")
 
-    temporal_flat = {k[len("temporal_encoder."):]: v for k, v in flat_state_dict.items()
-                      if k.startswith("temporal_encoder.")}
+    temporal_flat = {
+        k[len("temporal_encoder.") :]: v
+        for k, v in flat_state_dict.items()
+        if k.startswith("temporal_encoder.")
+    }
     if temporal_flat:
         temporal_converted = convert_convlstm_stack_state_dict(
-            temporal_flat, [(base_filters, base_filters)], keras_prefix="temporal_encoder",
+            temporal_flat,
+            [(base_filters, base_filters)],
+            keras_prefix="temporal_encoder",
         )
         for k, v in temporal_converted.items():
             out[k.replace("temporal_encoder0", "temporal_encoder", 1)] = v
@@ -35,7 +43,9 @@ def convert_metnet_state_dict(flat_state_dict, base_filters, num_dilated_convs=6
         copy(f"context_tower.{i}.bn.weight", f"context_tower_bn{i}/gamma")
         copy(f"context_tower.{i}.bn.bias", f"context_tower_bn{i}/beta")
         copy(f"context_tower.{i}.bn.running_mean", f"context_tower_bn{i}/moving_mean")
-        copy(f"context_tower.{i}.bn.running_var", f"context_tower_bn{i}/moving_variance")
+        copy(
+            f"context_tower.{i}.bn.running_var", f"context_tower_bn{i}/moving_variance"
+        )
 
     copy("lead_time_embed.weight", "lead_time_embed/embeddings")
     copy("attn_proj_in.weight", "attn_proj_in/kernel")

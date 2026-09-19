@@ -92,7 +92,9 @@ def TimesNet(
     x = layers.Dense(d_model, name="value_embed")(x)
 
     for i in range(num_layers):
-        x = FFTPeriodBlock(d_model, d_ff, num_kernels, top_k, name=f"timesblock{i}")(x, seq_len=seq_len)
+        x = FFTPeriodBlock(d_model, d_ff, num_kernels, top_k, name=f"timesblock{i}")(
+            x, seq_len=seq_len
+        )
         x = layers.LayerNormalization(epsilon=1e-6, name=f"norm{i}")(x)
 
     x_t = layers.Permute((2, 1), name="transpose_for_time_proj")(x)

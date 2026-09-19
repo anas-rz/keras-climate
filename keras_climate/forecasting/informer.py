@@ -10,8 +10,9 @@ class ValueEmbedding(layers.Layer):
         self.d_model = d_model
 
     def build(self, input_shape):
-        self.conv = layers.Conv1D(self.d_model, kernel_size=3, padding="valid",
-                                   use_bias=False, name="conv")
+        self.conv = layers.Conv1D(
+            self.d_model, kernel_size=3, padding="valid", use_bias=False, name="conv"
+        )
         super().build(input_shape)
 
     def call(self, x):
@@ -32,8 +33,11 @@ class DataEmbedding(layers.Layer):
     def build(self, input_shape):
         self.value_embedding = ValueEmbedding(self.d_model, name="value_embedding")
         self.position_embedding = self.add_weight(
-            shape=self._pos_np.shape, initializer=keras.initializers.Constant(self._pos_np),
-            trainable=False, name="position_embedding")
+            shape=self._pos_np.shape,
+            initializer=keras.initializers.Constant(self._pos_np),
+            trainable=False,
+            name="position_embedding",
+        )
         self.drop = layers.Dropout(self.dropout_rate)
         super().build(input_shape)
 
@@ -51,12 +55,20 @@ class DistillConv(layers.Layer):
 
     def build(self, input_shape):
         self.pad1 = layers.ZeroPadding1D(1, name="pad1")
-        self.conv = layers.Conv1D(self.d_model, kernel_size=3, strides=1, padding="valid",
-                                   use_bias=False, name="conv")
+        self.conv = layers.Conv1D(
+            self.d_model,
+            kernel_size=3,
+            strides=1,
+            padding="valid",
+            use_bias=False,
+            name="conv",
+        )
         self.bn = layers.BatchNormalization(epsilon=1e-5, name="bn")
         self.act = layers.Activation("elu")
         self.pad2 = layers.ZeroPadding1D(1, name="pad2")
-        self.pool = layers.MaxPooling1D(pool_size=3, strides=2, padding="valid", name="pool")
+        self.pool = layers.MaxPooling1D(
+            pool_size=3, strides=2, padding="valid", name="pool"
+        )
         super().build(input_shape)
 
     def call(self, x, training=False):
@@ -75,7 +87,7 @@ class MultiHeadAttention(layers.Layer):
         self.d_model = d_model
         self.num_heads = num_heads
         self.head_dim = d_model // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
 
     def build(self, input_shape):
         self.q_proj = layers.Dense(self.d_model, name="q_proj")
@@ -138,8 +150,12 @@ class InformerDecoderLayer(layers.Layer):
         self.drop = layers.Dropout(dropout)
 
     def call(self, x, enc_out, self_mask=None, training=False):
-        x = self.norm1(x + self.drop(self.self_attn(x, x, x, mask=self_mask), training=training))
-        x = self.norm2(x + self.drop(self.cross_attn(x, enc_out, enc_out), training=training))
+        x = self.norm1(
+            x + self.drop(self.self_attn(x, x, x, mask=self_mask), training=training)
+        )
+        x = self.norm2(
+            x + self.drop(self.cross_attn(x, enc_out, enc_out), training=training)
+        )
         y = self.drop(self.act(self.conv1(x)), training=training)
         y = self.drop(self.conv2(y), training=training)
         return self.norm3(x + y)
@@ -150,23 +166,37 @@ def causal_mask(seq_len):
     return mask[None, None, :, :]
 
 
-def Informer(seq_len=96, label_len=48, pred_len=24, num_channels=7, d_model=64, num_heads=4,
-             d_ff=128, encoder_layers=2, decoder_layers=1, dropout=0.1, distil=True,
-             name="informer"):
+def Informer(
+    seq_len=96,
+    label_len=48,
+    pred_len=24,
+    num_channels=7,
+    d_model=64,
+    num_heads=4,
+    d_ff=128,
+    encoder_layers=2,
+    decoder_layers=1,
+    dropout=0.1,
+    distil=True,
+    name="informer",
+):
     enc_in = keras.Input((seq_len, num_channels), name="encoder_series")
     dec_in = keras.Input((label_len + pred_len, num_channels), name="decoder_series")
 
     enc_x = DataEmbedding(d_model, dropout=dropout, name="enc_embedding")(enc_in)
     for i in range(encoder_layers):
-        enc_x = InformerEncoderLayer(d_model, num_heads, d_ff, dropout, name=f"encoder_layer{i}")(enc_x)
+        enc_x = InformerEncoderLayer(
+            d_model, num_heads, d_ff, dropout, name=f"encoder_layer{i}"
+        )(enc_x)
         if distil and i < encoder_layers - 1:
             enc_x = DistillConv(d_model, name=f"distill{i}")(enc_x)
 
     dec_x = DataEmbedding(d_model, dropout=dropout, name="dec_embedding")(dec_in)
     self_mask = causal_mask(label_len + pred_len)
     for i in range(decoder_layers):
-        dec_x = InformerDecoderLayer(d_model, num_heads, d_ff, dropout,
-                                      name=f"decoder_layer{i}")(dec_x, enc_x, self_mask=self_mask)
+        dec_x = InformerDecoderLayer(
+            d_model, num_heads, d_ff, dropout, name=f"decoder_layer{i}"
+        )(dec_x, enc_x, self_mask=self_mask)
 
     out = layers.Dense(num_channels, name="projection")(dec_x)
     out = layers.Lambda(lambda t: t[:, -pred_len:, :], name="slice_forecast")(out)
