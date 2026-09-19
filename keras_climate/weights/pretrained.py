@@ -97,14 +97,24 @@ All four are validated only against from-scratch synthetic PyTorch
 references of their own architectures (see each module's docstring and
 `weights/mappings/{afno,fno,deeponet,uno}_mapping.py`).
 
-Clay and AnySat have no loader here: Clay's official checkpoint is ~5GB
-(impractical to fetch/validate in most environments), and AnySat's
-official checkpoint uses a substantially more complex, config-driven
-architecture than `AnySatEncoder` implements (see
-`keras_climate.foundation.anysat`'s module docstring) - both are still
-validated against synthetic references matching their respective
-mappings' assumed naming (see `foundation/test_clay.py` /
-`foundation/test_anysat.py`), just not against the real public checkpoints.
+Clay has no loader here: its official checkpoint is ~5GB, impractical to
+fetch/validate in most environments - it's still validated against a
+synthetic reference matching `clay_mapping.py`'s assumed naming (see
+`foundation/test_clay.py`), just not against the real public checkpoint.
+
+AnySat has two, deliberately different, implementations:
+  - `AnySatEncoder` (`foundation/anysat.py`): this repo's own simpler
+    "any modality, any resolution" ViT - validated only against a
+    from-scratch synthetic reference (see `foundation/test_anysat.py`),
+    not the real checkpoint, and has no loader here.
+  - `anysat_base` below, backed by `AnySatRelease`
+    (`foundation/anysat_release.py`): a faithful port of the *officially
+    released* AnySat architecture (per-modality-kind projector zoo, a
+    local iRPE transformer, a global transformer, and an iRPE cross-
+    attention pooling block) - exact architecture + checkpoint match
+    against the paper authors' own `g-astruc/AnySat` release, validated
+    end-to-end to ~1e-6 against real PyTorch forward passes using the
+    real checkpoint weights (see `foundation/test_anysat_release.py`).
 
 RingMo has no loader either: no official or credible unofficial
 checkpoint has ever been publicly released for it at all (see
@@ -126,6 +136,7 @@ from keras_climate.remote_sensing.satclip import SatCLIPLocationEncoder
 from keras_climate.foundation import PrithviEncoder
 from keras_climate.foundation.prithvi import PRITHVI_CONFIGS
 from keras_climate.foundation.croma import CROMA
+from keras_climate.foundation.anysat_release import AnySatRelease, ANYSAT_MODALITIES, anysat_projector_configs
 from keras_climate.weather.fourcastnet import FourCastNet
 from keras_climate.weather.climax import ClimaX
 from keras_climate.weather.pangu_weather import PanguWeather
@@ -153,6 +164,7 @@ from keras_climate.weights.mappings import (
     build_climax_mapper,
     build_pangu_weather_mapper,
     convert_pangu_weather_state_dict,
+    build_anysat_release_mapper,
 )
 
 DEFAULT_CACHE_DIR = os.environ.get(
@@ -568,4 +580,74 @@ def _croma(size, img_size, cache_dir, strict):
     report = WeightConverter(model, translated, build_croma_identity_mapper()).convert(
         strict=strict, verbose=True
     )
+    return model, report
+
+
+def anysat_base(modalities=None, input_shapes=None, scale=1, cache_dir=None, strict=False):
+    """`AnySatRelease` at the officially released "base" config
+    (embed_dim=768, depth=6, num_heads=12, 125.9M params) - the paper
+    authors' own `g-astruc/AnySat` checkpoint (HuggingFace `g-astruc/AnySat`,
+    `models/AnySat.pth`).
+
+    `modalities`/`input_shapes`/`scale` pick which of the model's 11
+    modality projectors to build and their (fixed) input shapes - see
+    `AnySatRelease`'s docstring; defaults to a small aerial + Sentinel-2
+    example at `scale=1` (a 10m output patch), cheap to build and run.
+    Pass `modalities=ANYSAT_MODALITIES` (every modality) for a `strict=True`
+    full-checkpoint load - not every `(modality, scale)` combination is
+    valid (`l7`/`alos`'s ~30m native resolution only lines up with the
+    model's resolution-aware position embedding at certain `scale` values;
+    `AnySatRelease` raises with a clear message on a mismatched pairing,
+    same as the official implementation would).
+
+    `strict=True` only ever means "every *other* weight matched" - the
+    per-time-series-modality `pe_denom` buffers (the LTAE positional
+    encoder's frequency denominators) are derived purely from config, with
+    no checkpoint counterpart by design, so they're always expected-missing
+    regardless of `strict`."""
+    path = _download(
+        "https://huggingface.co/g-astruc/AnySat/resolve/main/models/AnySat.pth",
+        "AnySat.pth", cache_dir,
+    )
+    if modalities is None:
+        modalities = ["aerial", "s2"]
+
+    proj_cfgs = anysat_projector_configs(768)
+    if input_shapes is None:
+        input_shapes = {}
+        for m in modalities:
+            pc = proj_cfgs[m]
+            if pc["kind"] == "image":
+                res = int(10 / pc["resolution"])
+                gs = res // pc["patch_size"]
+                side = gs * scale * pc["patch_size"]
+                input_shapes[m] = (side, side, pc["in_chans"])
+            else:
+                se = max(1, scale // pc["reduce_scale"])
+                input_shapes[m] = (8, se, se, pc["in_channels"])
+
+    model = AnySatRelease(modalities, input_shapes, scale, size="base")
+    dummy = {}
+    for m in modalities:
+        shp = input_shapes[m]
+        if proj_cfgs[m]["kind"] == "image":
+            dummy[m] = np.zeros((1,) + shp, dtype="float32")
+        else:
+            dummy[m] = (np.zeros((1,) + shp, dtype="float32"), np.zeros((1, shp[0]), dtype="float32"))
+    model(dummy)  # build
+
+    state_dict = load_torch_state_dict_as_numpy(path)
+    mapper = build_anysat_release_mapper(modalities, depth=6)
+    # `pad_parameter`s are a training-time masking helper with no Keras
+    # counterpart; `pe_denom`s are the derived buffers noted above.
+    report = WeightConverter(
+        model, state_dict, mapper, skip_patterns=[r"pad_parameter$"],
+    ).convert(strict=False, verbose=True)
+    expected_missing = {w for w in report["missing_in_source"] if w.endswith("/pe_denom")}
+    if strict and (set(report["missing_in_source"]) - expected_missing or report["unused_source_keys"]):
+        raise ValueError(
+            f"Strict conversion failed: {len(report['missing_in_source'])} missing "
+            f"(beyond the expected pe_denom buffers), {len(report['unused_source_keys'])} unused "
+            f"(unused is expected/nonzero when `modalities` is a subset of ANYSAT_MODALITIES)."
+        )
     return model, report

@@ -16,6 +16,7 @@ from keras_climate.weights.mappings.clay_mapping import (
     convert_clay_encoder_state_dict, build_clay_identity_mapper,
 )
 from keras_climate.weights.mappings.anysat_mapping import build_anysat_mapper
+from keras_climate.weights.mappings.anysat_release_mapping import build_anysat_release_mapper
 from keras_climate.weights.mappings.convlstm_mapping import (
     convert_convlstm_stack_state_dict, build_convlstm_identity_mapper,
 )
@@ -56,6 +57,7 @@ __all__ = [
     "load_croma_checkpoint", "convert_croma_state_dict", "build_croma_identity_mapper",
     "convert_clay_encoder_state_dict", "build_clay_identity_mapper",
     "build_anysat_mapper",
+    "build_anysat_release_mapper",
     "convert_convlstm_stack_state_dict", "build_convlstm_identity_mapper",
     "build_earthformer_mapper",
     "convert_metnet_state_dict", "build_metnet_mapper",
