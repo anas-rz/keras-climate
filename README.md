@@ -1,5 +1,7 @@
 # keras_climate
 
+![Keras Climate](docs/banner.png)
+
 A Keras 3 (TensorFlow / JAX / PyTorch backend) framework of models for
 climate modeling and Earth observation, plus tooling to port pretrained
 weights from the original reference implementations (almost always
