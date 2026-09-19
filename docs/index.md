@@ -34,7 +34,7 @@ models ship a ready-to-download real checkpoint.
 ## Installation
 
 ```bash
-pip install -e .
+pip install git+https://github.com/anas-rz/keras-climate
 ```
 
 Then install a Keras 3 backend of your choice:
