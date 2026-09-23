@@ -24,6 +24,15 @@ class RevIN(layers.Layer):
             return self._denormalize(x)
         raise ValueError(f"RevIN mode must be 'norm' or 'denorm', got {mode!r}")
 
+    def compute_output_shape(self, input_shape):
+        # norm/denorm both preserve shape exactly; declaring this avoids
+        # Keras falling back to probing call() with placeholder tensors to
+        # infer the output shape, which (under the torch backend) can pick
+        # up self.mean/self.std left over from an unrelated probe call for
+        # a differently-shaped node in the graph (e.g. "denorm" probed with
+        # stale statistics from a "norm" probe of another instance).
+        return input_shape
+
     def _normalize(self, x):
         self.mean = ops.mean(x, axis=1, keepdims=True)
         self.std = ops.sqrt(ops.var(x, axis=1, keepdims=True) + self.eps)
@@ -106,6 +115,7 @@ def PatchTST(
             lambda t: ops.concatenate(
                 [t, ops.repeat(t[:, -1:, :], stride, axis=1)], axis=1
             ),
+            output_shape=(padded_seq_len, num_channels),
             name="replication_pad",
         )(x)
 
@@ -129,6 +139,7 @@ def PatchTST(
         lambda t: ops.transpose(
             ops.reshape(t, (-1, num_channels, pred_len)), (0, 2, 1)
         ),
+        output_shape=(pred_len, num_channels),
         name="reshape_output",
     )(head)
 
