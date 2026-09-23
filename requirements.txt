@@ -21,5 +21,27 @@ numpy
 # einops
 # timm
 
+# Required for keras_climate.datasets / keras_climate.samplers /
+# keras_climate.transforms (a port of torchgeo.datasets/samplers/transforms):
+# rasterio
+# geopandas
+# shapely
+# pyproj
+# fiona
+# rtree
+# matplotlib
+# pillow
+# einops
+
+# Only needed by specific leaf datasets in keras_climate.datasets (lazily
+# imported, so only required if you actually instantiate that dataset):
+# h5py                 # CaBuAr, ChaBuD, CropHarvest, MMEarth, QuakeSet, SKIPPD, So2Sat, ZueriCrop, ...
+# xarray, netCDF4, h5netcdf   # DL4GAMAlps, XarrayDataset
+# pyarrow              # ClayEmbeddings, MajorTOMEmbeddings, geoparquet-backed datasets
+# laspy                # IDTReeS (LiDAR point clouds)
+# tokenizers           # SkyScript
+# scipy                # ADVANCE (wavfile audio I/O)
+# requests             # OpenAerialMap, OpenStreetMap
+
 # Testing:
 # pytest>=7.0

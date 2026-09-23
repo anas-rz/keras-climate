@@ -1,0 +1,183 @@
+"""SolarPlantsBrazil dataset (ported from torchgeo.datasets.solar_plants_brazil)."""
+
+import glob
+import os
+
+import numpy as np
+import rasterio
+from keras import ops
+
+from .errors import DatasetNotFoundError
+from .geo import NonGeoDataset
+from .utils import download_and_extract_archive, extract_archive
+
+
+class SolarPlantsBrazil(NonGeoDataset):
+    """Solar Plants Brazil dataset (semantic segmentation for photovoltaic detection).
+
+    The `Solar Plants Brazil
+    <https://huggingface.co/datasets/FederCO23/solar-plants-brazil>`__ dataset
+    provides satellite imagery and pixel-level annotations for detecting
+    photovoltaic solar power stations.
+
+    Dataset features:
+
+    * 272 RGB+NIR GeoTIFF images (256x256 pixels)
+    * Binary masks indicating presence of solar panels (1 = panel, 0 = background)
+    * Organized into `train`, `val`, and `test` splits
+    * Float32 GeoTIFF files for both input and mask images
+    * Spatial metadata included (CRS, bounding box), but not used directly for training
+
+    Folder structure:
+
+    .. code-block:: text
+
+        root/train/input/img(123).tif
+        root/train/labels/target(123).tif
+
+    Access:
+
+    * Dataset is hosted on Hugging Face:
+      https://huggingface.co/datasets/FederCO23/solar-plants-brazil
+    * Code and preprocessing steps available at:
+      https://github.com/FederCO23/UCSD_MLBootcamp_Capstone
+    """
+
+    url = "https://huggingface.co/datasets/FederCO23/solar-plants-brazil/resolve/1dc13a453ef6acabf08a1781c523fd1db3d9bcc5/"
+    filename = "solarplantsbrazil.zip"
+    bands = ("Red", "Green", "Blue", "NIR")
+    md5 = "dfa0d3efdef4143a33b0e7ba834eaafa"
+
+    def __init__(
+        self, root="data", split="train", transforms=None, download=False, checksum=True
+    ):
+        """Initialize a SolarPlantsBrazil dataset split.
+
+        Args:
+            root: root directory where dataset can be found
+            split: dataset split to use, one of "train", "val", or "test"
+            transforms: a function/transform that takes an input sample
+                and returns a transformed version
+            download: if True, download dataset and store it in the root directory
+            checksum: if True, check the MD5 of the downloaded files (may be slow)
+
+        Raises:
+            DatasetNotFoundError: If dataset is not found and *download* is False.
+        """
+        self.root = root
+        self.transforms = transforms
+        self.dataset_path = os.path.join(self.root, split)
+        self.split = split
+        self.download = download
+        self.checksum = checksum
+
+        self._verify()
+
+        input_dir = os.path.join(self.dataset_path, "input")
+        labels_dir = os.path.join(self.dataset_path, "labels")
+
+        self.image_paths = sorted(glob.glob(os.path.join(input_dir, "img(*).tif")))
+        self.mask_paths = sorted(glob.glob(os.path.join(labels_dir, "target(*).tif")))
+
+    def _verify(self):
+        """Verify the integrity of the dataset."""
+        directory = os.path.join(self.root, self.split)
+        zip_path = os.path.join(self.root, self.filename)
+
+        if os.path.isdir(directory):
+            return
+        elif os.path.isfile(zip_path):
+            extract_archive(zip_path)
+        elif self.download:
+            self._download()
+        else:
+            raise DatasetNotFoundError(self)
+
+    def _download(self):
+        """Download and extract the dataset archive."""
+        download_and_extract_archive(
+            url=self.url + self.filename,
+            download_root=self.root,
+            filename=self.filename,
+            md5=self.md5 if self.checksum else None,
+        )
+
+    def __getitem__(self, index):
+        """Return the image and mask at the given index."""
+        image = self._load_image(self.image_paths[index])
+        mask = self._load_mask(self.mask_paths[index])
+        sample = {"image": image, "mask": mask}
+        if self.transforms:
+            sample = self.transforms(sample)
+        return sample
+
+    def __len__(self):
+        """Return the number of samples in the dataset."""
+        return len(self.image_paths)
+
+    def _load_image(self, path):
+        """Load an image as a float32 tensor.
+
+        Returns:
+            A float32 tensor with shape (H, W, C).
+        """
+        with rasterio.open(path) as src:
+            arr = src.read().astype(np.float32)
+        arr = np.transpose(arr, (1, 2, 0))
+        return ops.convert_to_tensor(arr)
+
+    def _load_mask(self, path):
+        """Load a binary mask from file and return as a tensor.
+
+        Returns:
+            An int64 tensor with shape (H, W), with values 0 or 1.
+        """
+        with rasterio.open(path) as src:
+            arr = src.read(1).astype(np.uint8)
+        bin_mask = (arr > 0).astype("int64")
+        return ops.convert_to_tensor(bin_mask)
+
+    def plot(self, sample, show_titles=True, suptitle=None):
+        """Plot a sample from the SolarPlantsBrazil dataset."""
+        import matplotlib.pyplot as plt
+
+        image = sample["image"]
+        mask = sample["mask"]
+        show_prediction = "prediction" in sample
+
+        # Use RGB only
+        if image.shape[-1] == 4:
+            image = image[..., :3]
+
+        # Normalize for display
+        image_np = ops.convert_to_numpy(image)
+        max_val = np.max(image_np)
+        if max_val > 0:
+            image_np = image_np / max_val
+
+        mask_np = np.squeeze(ops.convert_to_numpy(mask))
+
+        ncols = 3 if show_prediction else 2
+        fig, axs = plt.subplots(1, ncols, figsize=(5 * ncols, 5))
+        axs[0].imshow(image_np)
+        if show_titles:
+            axs[0].set_title("RGB Image")
+        axs[0].axis("off")
+
+        axs[1].imshow(mask_np, cmap="gray")
+        if show_titles:
+            axs[1].set_title("Mask")
+        axs[1].axis("off")
+
+        if show_prediction:
+            pred_np = np.squeeze(ops.convert_to_numpy(sample["prediction"]))
+            axs[2].imshow(pred_np, cmap="gray")
+            if show_titles:
+                axs[2].set_title("Prediction")
+            axs[2].axis("off")
+
+        if suptitle is not None:
+            plt.suptitle(suptitle)
+
+        plt.tight_layout()
+        return fig
