@@ -181,9 +181,19 @@ def test_array_to_tensor_uint16():
 
 
 def test_array_to_tensor_uint32():
+    import keras
+
     arr = np.array([1, 2, 3], dtype=np.uint32)
     tensor = array_to_tensor(arr)
-    assert ops.convert_to_numpy(tensor).dtype == np.int64
+    dtype = ops.convert_to_numpy(tensor).dtype
+    if keras.backend.backend() == "jax":
+        # JAX disables 64-bit precision by default (a well-known JAX
+        # limitation, not something array_to_tensor controls), so an int64
+        # request is silently downcast to int32 unless the user opts in via
+        # `jax.config.update("jax_enable_x64", True)`.
+        assert dtype in (np.int32, np.int64)
+    else:
+        assert dtype == np.int64
 
 
 def test_quantile_normalization_clips_to_unit_range():

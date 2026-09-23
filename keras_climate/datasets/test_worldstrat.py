@@ -8,6 +8,7 @@ import rasterio
 from PIL import Image
 
 from keras_climate.datasets import DatasetNotFoundError
+from keras_climate.datasets._test_helpers import assert_dtype
 from keras_climate.datasets.worldstrat import WorldStrat
 
 TRANSFORM = rasterio.Affine(1.0, 0, 0, 0, 1.0, 0)
@@ -71,7 +72,7 @@ def test_getitem(prepared_root):
     ds = WorldStrat(root=prepared_root, split="train", download=False)
     sample = ds[0]
     for modality in ds.modalities:
-        assert sample[f"image_{modality}"].dtype == "float32"
+        assert_dtype(sample[f"image_{modality}"], "float32")
 
     low_res_date = sample["low_res_date"]
     assert tuple(low_res_date.shape) == (4,)

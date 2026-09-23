@@ -7,6 +7,7 @@ import rasterio
 from rasterio.transform import from_origin
 
 from keras_climate.datasets import DatasetNotFoundError
+from keras_climate.datasets._test_helpers import assert_dtype, assert_int64_dtype
 from keras_climate.datasets.spacenet.spacenet8 import SpaceNet8
 
 TRANSFORM = from_origin(0, 4, 1, 1)
@@ -76,8 +77,8 @@ def test_getitem_train(tmp_path):
     assert "image" in sample and "mask" in sample
     assert tuple(sample["image"].shape) == (1300, 1300, 3)
     assert tuple(sample["mask"].shape) == (1300, 1300)
-    assert sample["image"].dtype == "float32"
-    assert sample["mask"].dtype == "int64"
+    assert_dtype(sample["image"], "float32")
+    assert_int64_dtype(sample["mask"])
 
 
 def test_len(tmp_path):

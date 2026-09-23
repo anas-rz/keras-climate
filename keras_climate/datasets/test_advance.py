@@ -8,6 +8,7 @@ from PIL import Image
 pytest.importorskip("scipy")
 
 from keras_climate.datasets import DatasetNotFoundError
+from keras_climate.datasets._test_helpers import assert_dtype
 from keras_climate.datasets.advance import ADVANCE
 
 
@@ -39,7 +40,7 @@ def test_getitem(prepared_root):
     ds = ADVANCE(prepared_root)
     x = ds[0]
     assert tuple(x["image"].shape) == (8, 8, 3)
-    assert x["image"].dtype == "float32"
+    assert_dtype(x["image"], "float32")
     assert "audio" in x
     assert "label" in x
 

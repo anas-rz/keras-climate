@@ -10,6 +10,7 @@ from rasterio.transform import from_origin
 pytest.importorskip("pyarrow")
 
 from keras_climate.datasets import DatasetNotFoundError
+from keras_climate.datasets._test_helpers import assert_dtype, assert_int64_dtype
 from keras_climate.datasets.bigearthnet import BigEarthNet, BigEarthNetV2
 
 S2_BANDS = (
@@ -78,8 +79,8 @@ def v1_root(tmp_path):
 def test_getitem_v1(v1_root, bands, num_classes):
     ds = BigEarthNet(v1_root, split="train", bands=bands, num_classes=num_classes)
     x = ds[0]
-    assert x["image"].dtype == "float32"
-    assert x["label"].dtype == "int64"
+    assert_dtype(x["image"], "float32")
+    assert_int64_dtype(x["label"])
     assert x["label"].shape == (num_classes,)
     if bands == "all":
         assert x["image"].shape == (120, 120, 14)
@@ -175,8 +176,8 @@ def test_getitem_v2(v2_root, bands):
         key = "image_s1" if bands == "all" else "image"
         assert x[key].shape == (120, 120, 2)
     assert x["mask"].shape == (4, 4, 1)
-    assert x["mask"].dtype == "int64"
-    assert x["label"].dtype == "int64"
+    assert_int64_dtype(x["mask"])
+    assert_int64_dtype(x["label"])
 
 
 def test_len_v2(v2_root):

@@ -6,6 +6,7 @@ import rasterio
 from rasterio.transform import from_origin
 
 from keras_climate.datasets import RGBBandsMissingError
+from keras_climate.datasets._test_helpers import assert_dtype
 from keras_climate.datasets.airphen import Airphen
 
 
@@ -33,7 +34,7 @@ def test_getitem(prepared_root):
     ds = Airphen(prepared_root)
     x = ds[ds.bounds]
     assert tuple(x["image"].shape) == (8, 8, 8)
-    assert x["image"].dtype == "float32"
+    assert_dtype(x["image"], "float32")
 
 
 def test_len(prepared_root):

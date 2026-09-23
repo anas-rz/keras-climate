@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from keras_climate.datasets import DatasetNotFoundError
+from keras_climate.datasets._test_helpers import assert_dtype
 from keras_climate.datasets.air_quality import AirQuality
 
 
@@ -33,7 +34,7 @@ def test_getitem(prepared_root):
     item = ds[0]
     assert tuple(item["input"].shape)[0] == 3
     assert tuple(item["target"].shape)[0] == 1
-    assert item["input"].dtype == "float32"
+    assert_dtype(item["input"], "float32")
 
 
 def test_len(prepared_root):
