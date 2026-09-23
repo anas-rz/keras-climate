@@ -11,16 +11,22 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PYTHON_VERSION: "3.12"
+
 jobs:
   test:
-    name: pytest (Python ${{ matrix.python-version }})
+    name: pytest (${{ matrix.backend }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        backend: [tensorflow, jax, torch]
+
+    env:
+      KERAS_BACKEND: ${{ matrix.backend }}
 
     steps:
       - name: Checkout repository
@@ -28,10 +34,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
 
       - name: Cache testmon database
@@ -39,19 +45,26 @@ jobs:
         with:
           path: .testmondata
           key: >
-            testmon-${{ runner.os }}-${{ matrix.python-version }}-${{ github.ref_name }}
+            testmon-${{ runner.os }}-${{ matrix.backend }}-${{ github.ref_name }}
           restore-keys: |
-            testmon-${{ runner.os }}-${{ matrix.python-version }}-
+            testmon-${{ runner.os }}-${{ matrix.backend }}-
 
       - name: Install package
         run: pip install -e .
 
+      - name: Install PyTorch (CPU wheels; also the weight-port reference impl)
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install TensorFlow backend
+        if: matrix.backend == 'tensorflow'
+        run: pip install tensorflow-cpu
+
+      - name: Install JAX backend
+        if: matrix.backend == 'jax'
+        run: pip install "jax[cpu]"
+
       - name: Install test dependencies
-        run: |
-          pip install pytest pytest-testmon
-          pip install tensorflow-cpu
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install einops
+        run: pip install -r requirements-test.txt
 
       - name: Run incremental tests (push/PR)
         if: github.event_name != 'schedule'

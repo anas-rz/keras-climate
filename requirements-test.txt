@@ -1,0 +1,43 @@
+# Dependencies needed to run the full keras_climate test suite (`pytest`),
+# as opposed to requirements.txt, which only lists what's needed to *use*
+# the library. Install with: pip install -r requirements-test.txt
+#
+# Does not include the package itself (`pip install -e .`) or a Keras
+# backend (tensorflow-cpu / jax[cpu] / torch), which are installed
+# separately so CI can matrix over backends.
+
+# Test runner
+pytest>=7.0
+pytest-testmon
+
+# Weight-port round-trip reference tests (keras_climate/foundation/test_*.py,
+# keras_climate/weather/test_*.py, etc. compare against a real PyTorch impl).
+# torch/torchvision are deliberately NOT listed here: install them yourself
+# first from the CPU wheel index to avoid pulling CUDA wheels, e.g.:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+einops
+timm
+safetensors
+transformers>=4.30
+
+# keras_climate.datasets / .samplers / .transforms (a port of
+# torchgeo.datasets/.samplers/.transforms) and their test fixtures
+rasterio
+geopandas
+shapely
+pyproj
+fiona
+rtree
+matplotlib
+pillow
+
+# Lazily-imported extras needed by individual leaf datasets' tests
+h5py
+xarray
+netCDF4
+h5netcdf
+pyarrow
+laspy
+tokenizers
+scipy
+requests
