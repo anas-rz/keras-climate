@@ -18,6 +18,10 @@ keras_climate
 ├── weather                spatiotemporal nowcasting / weather models
 ├── foundation             large pretrained Earth-observation foundation models
 ├── operators              neural operator learning (PDE surrogate modeling)
+├── datasets/              Keras port of torchgeo.datasets (190+ concrete datasets)
+├── samplers/               Keras port of torchgeo.samplers (geospatial tile sampling)
+├── transforms/             Keras port of torchgeo.transforms (band indices, SAR, ...)
+├── losses/                 Keras port of torchgeo.losses (ELECTS, QR/RQ)
 ├── utils/layers.py         shared building blocks (attention, patch embed, conv blocks)
 └── weights/                generic PyTorch -> Keras weight-porting framework
     ├── converter.py          WeightConverter, transpose inference, checkpoint loaders
@@ -27,9 +31,18 @@ keras_climate
 ```
 
 See the [Models](models/remote-sensing.md) section for what each family
-contains, [Weight Porting](weight-porting.md) for how the conversion
+contains, [Data](models/data.md) for the dataset/sampler/transform
+framework, [Weight Porting](weight-porting.md) for how the conversion
 framework works, and [Pretrained Weights](pretrained-weights.md) for which
 models ship a ready-to-download real checkpoint.
+
+## Runnable examples
+
+Every example below opens directly in Google Colab, no local setup needed
+— see [Examples](examples.md) for the full list, including a complete
+**finetune a pretrained model** walkthrough.
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/anas-rz/keras-climate/blob/main/examples/01_quickstart.ipynb)
 
 ## Installation
 

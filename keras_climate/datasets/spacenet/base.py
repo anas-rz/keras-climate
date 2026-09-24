@@ -64,12 +64,12 @@ class SpaceNet(NonGeoDataset, ABC):
     @property
     @abstractmethod
     def tarballs(self):
-        """Mapping of tarballs[split][aoi] = [tarballs]."""
+        """Mapping of `tarballs[split][aoi]` to a list of tarball names."""
 
     @property
     @abstractmethod
     def md5s(self):
-        """Mapping of md5s[split][aoi] = [md5s]."""
+        """Mapping of `md5s[split][aoi]` to a list of md5 checksums."""
 
     @property
     @abstractmethod

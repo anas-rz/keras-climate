@@ -58,12 +58,14 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Quick Start: quickstart.md
+  - Examples (Colab): examples.md
   - Models:
       - Remote Sensing: models/remote-sensing.md
       - Forecasting: models/forecasting.md
       - Weather: models/weather.md
       - Foundation Models: models/foundation.md
       - Neural Operators: models/operators.md
+      - Data: models/data.md
   - Weight Porting: weight-porting.md
   - Pretrained Weights: pretrained-weights.md
   - Implementation Notes: notes.md
@@ -73,6 +75,10 @@ nav:
       - Weather: api/weather.md
       - Foundation Models: api/foundation.md
       - Neural Operators: api/operators.md
+      - Datasets: api/datasets.md
+      - Samplers: api/samplers.md
+      - Transforms: api/transforms.md
+      - Losses: api/losses.md
       - Weights: api/weights.md
       - Weight Mappings: api/mappings.md
       - Shared Layers: api/utils.md

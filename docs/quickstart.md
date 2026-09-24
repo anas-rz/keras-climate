@@ -1,5 +1,9 @@
 # Quick Start
 
+!!! tip "Prefer a notebook?"
+    See [Examples](examples.md) for the same content as runnable Colab
+    notebooks, including a complete pretrained-model finetuning walkthrough.
+
 ## Building a model
 
 ```python
