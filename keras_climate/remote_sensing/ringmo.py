@@ -331,16 +331,19 @@ class PIMask(layers.Layer):
         self.mask_patch_size = mask_patch_size
         self.mask_ratio = mask_ratio
         self.inside_ratio = inside_ratio
+        self.seed_generator = keras.random.SeedGenerator()
 
     def call(self, x):
         B, H, W = ops.shape(x)[0], x.shape[1], x.shape[2]
         gh, gw = H // self.mask_patch_size, W // self.mask_patch_size
 
         block_mask = ops.cast(
-            keras.random.uniform((B, gh, gw)) < self.mask_ratio, "float32"
+            keras.random.uniform((B, gh, gw), seed=self.seed_generator) < self.mask_ratio,
+            "float32",
         )
         pixel_mask = ops.cast(
-            keras.random.uniform((B, H, W)) < self.inside_ratio, "float32"
+            keras.random.uniform((B, H, W), seed=self.seed_generator) < self.inside_ratio,
+            "float32",
         )
 
         block_mask_full = ops.repeat(block_mask, self.mask_patch_size, axis=1)

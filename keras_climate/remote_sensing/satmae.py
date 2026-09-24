@@ -13,12 +13,17 @@ class MaskingLayer(layers.Layer):
     def __init__(self, mask_ratio=0.75, **kwargs):
         super().__init__(**kwargs)
         self.mask_ratio = mask_ratio
+        self.seed_generator = keras.random.SeedGenerator()
 
     def call(self, x):
-        B, N, D = ops.shape(x)[0], ops.shape(x)[1], x.shape[-1]
-        len_keep = ops.cast(ops.cast(N, "float32") * (1 - self.mask_ratio), "int32")
+        # N (token count) is fixed by the architecture (img_size/patch_size),
+        # never batch-dependent, so keep it a static Python int rather than a
+        # traced `ops.shape(x)[1]` value: `len_keep` is used below as a slice
+        # bound, and JAX requires slice bounds to be static under tracing.
+        B, N = ops.shape(x)[0], x.shape[1]
+        len_keep = int(N * (1 - self.mask_ratio))
 
-        noise = keras.random.uniform((B, N))
+        noise = keras.random.uniform((B, N), seed=self.seed_generator)
         ids_shuffle = ops.argsort(noise, axis=1)
         ids_restore = ops.argsort(ids_shuffle, axis=1)
 
