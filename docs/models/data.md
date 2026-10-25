@@ -91,7 +91,7 @@ class MySequence(keras.utils.PyDataset):
 model.fit(MySequence(train_ds), epochs=10)
 ```
 
-See the [finetuning example notebook](https://colab.research.google.com/github/anas-rz/keras-climate/blob/main/examples/03_finetune_pretrained_model.ipynb)
+See [Finetune a pretrained Sentinel-2 backbone on EuroSAT](../examples/finetune-pretrained-model.md)
 for a complete, runnable version of this pattern.
 
 ## Transforms

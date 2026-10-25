@@ -39,7 +39,7 @@ models ship a ready-to-download real checkpoint.
 ## Runnable examples
 
 Every example below opens directly in Google Colab, no local setup needed
-— see [Examples](examples.md) for the full list, including a complete
+— see [Examples](examples/index.md) for the full list, including a complete
 **finetune a pretrained model** walkthrough.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/anas-rz/keras-climate/blob/main/examples/01_quickstart.ipynb)

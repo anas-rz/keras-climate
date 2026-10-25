@@ -46,6 +46,7 @@ plugins:
             show_bases: true
 
 markdown_extensions:
+  - attr_list
   - admonition
   - pymdownx.details
   - pymdownx.superfences
@@ -58,7 +59,11 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Quick Start: quickstart.md
-  - Examples (Colab): examples.md
+  - Examples:
+      - Overview: examples/index.md
+      - Getting Started: examples/getting-started.md
+      - Pretrained Models: examples/pretrained-models.md
+      - Finetuning: examples/finetuning.md
   - Models:
       - Remote Sensing: models/remote-sensing.md
       - Forecasting: models/forecasting.md
