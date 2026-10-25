@@ -47,7 +47,7 @@ Every example below opens directly in Google Colab, no local setup needed
 ## Installation
 
 ```bash
-pip install git+https://github.com/anas-rz/keras-climate
+pip install keras-climate
 ```
 
 Then install a Keras 3 backend of your choice:

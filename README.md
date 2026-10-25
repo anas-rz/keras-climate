@@ -12,7 +12,7 @@ PyTorch) onto the Keras equivalents.
 ## Install
 
 ```bash
-pip install git+https://github.com/anas-rz/keras-climate
+pip install keras-climate
 ```
 
 ## Quick start
