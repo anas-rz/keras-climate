@@ -2,10 +2,21 @@ name: Tests
 
 on:
   push:
+    paths:
+      - "keras_climate/**"
+      - "pyproject.toml"
+      - "requirements.txt"
+      - "requirements-test.txt"
+      - "pytest.ini"
+      - ".github/workflows/tests.yml"
   pull_request:
-  schedule:
-    # Every Sunday at 06:00 UTC
-    - cron: "0 6 * * 0"
+    paths:
+      - "keras_climate/**"
+      - "pyproject.toml"
+      - "requirements.txt"
+      - "requirements-test.txt"
+      - "pytest.ini"
+      - ".github/workflows/tests.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -66,12 +77,6 @@ jobs:
       - name: Install test dependencies
         run: pip install -r requirements-test.txt
 
-      - name: Run incremental tests (push/PR)
-        if: github.event_name != 'schedule'
+      - name: Run tests
         run: |
           pytest --testmon -m "not pretrained" -v
-
-      - name: Run full test suite (scheduled)
-        if: github.event_name == 'schedule'
-        run: |
-          pytest -m "not pretrained" -v
