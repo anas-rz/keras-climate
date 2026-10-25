@@ -5,6 +5,7 @@ import keras
 from keras_climate.weather.fourcastnet import FourCastNet
 from keras_climate.weights import WeightConverter
 from keras_climate.weights.mappings import (
+    FOURCASTNET_SKIP_PATTERNS,
     build_fourcastnet_mapper,
     convert_fourcastnet_state_dict,
 )
@@ -61,7 +62,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         def forward(self, x):
             bias = x
             B, H, W, C = x.shape
-            xf = torch.fft.rfft2(x, dim=(1, 2), norm="backward")
+            xf = torch.fft.rfft2(x, dim=(1, 2), norm="ortho")
             x_re, x_im = xf.real, xf.imag
             x_re = x_re.reshape(B, H, W // 2 + 1, self.num_blocks, self.block_size)
             x_im = x_im.reshape(B, H, W // 2 + 1, self.num_blocks, self.block_size)
@@ -89,12 +90,16 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             o2_re, o2_im = o2_re.reshape(B, H, W // 2 + 1, C), o2_im.reshape(
                 B, H, W // 2 + 1, C
             )
+            # Keep only the first H // 2 + 1 width modes, as the reference does.
+            kept = H // 2 + 1
+            o2_re[:, :, kept:] = 0
+            o2_im[:, :, kept:] = 0
 
             stacked = F.softshrink(
                 torch.stack([o2_re, o2_im], dim=-1), lambd=self.sparsity_threshold
             )
             out = torch.view_as_complex(stacked)
-            out = torch.fft.irfft2(out, s=(H, W), dim=(1, 2), norm="backward")
+            out = torch.fft.irfft2(out, s=(H, W), dim=(1, 2), norm="ortho")
             return out + bias
 
     class TorchMlp(nn.Module):
@@ -156,8 +161,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             x = x + self.pos_embed.reshape(1, self.grid_h, self.grid_w, -1)
             for blk in self.blocks:
                 x = blk(x)
-            x = self.norm(x)
-            x = self.head(x)
+            x = self.head(x)  # The reference never applies `self.norm`.
             B = x.shape[0]
             p, oc = self.patch_size, self.out_chans
             x = x.reshape(B, self.grid_h, self.grid_w, p, p, oc)
@@ -165,7 +169,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             return x.reshape(B, self.grid_h * p, self.grid_w * p, oc)
 
     torch.manual_seed(0)
-    H, W, patch_size, in_chans, out_chans = 16, 16, 4, 3, 3
+    H, W, patch_size, in_chans, out_chans = 16, 32, 4, 3, 3
     embed_dim, depth, num_blocks, mlp_ratio = 16, 2, 4, 4.0
 
     torch_model = TorchFourCastNet(
@@ -194,9 +198,9 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
     )
 
     mapper = build_fourcastnet_mapper(depth=depth)
-    report = WeightConverter(keras_model, state_dict, mapper).convert(
-        strict=True, verbose=False
-    )
+    report = WeightConverter(
+        keras_model, state_dict, mapper, skip_patterns=FOURCASTNET_SKIP_PATTERNS
+    ).convert(strict=True, verbose=False)
     assert not report["missing_in_source"]
     assert not report["unused_source_keys"]
 

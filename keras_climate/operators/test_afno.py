@@ -61,7 +61,7 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
         def forward(self, x):
             bias = x
             B, H, W, C = x.shape
-            x = torch.fft.rfft2(x, dim=(1, 2), norm="backward")
+            x = torch.fft.rfft2(x, dim=(1, 2), norm="ortho")
             x_re, x_im = x.real, x.imag
             x_re = x_re.reshape(B, H, W // 2 + 1, self.num_blocks, self.block_size)
             x_im = x_im.reshape(B, H, W // 2 + 1, self.num_blocks, self.block_size)
@@ -89,14 +89,19 @@ def test_weight_port_roundtrip_matches_pytorch_reference():
             o2_re = o2_re.reshape(B, H, W // 2 + 1, C)
             o2_im = o2_im.reshape(B, H, W // 2 + 1, C)
 
+            # Keep only the first H // 2 + 1 width modes, as the reference does.
+            kept = H // 2 + 1
+            o2_re[:, :, kept:] = 0
+            o2_im[:, :, kept:] = 0
+
             stacked = torch.stack([o2_re, o2_im], dim=-1)
             stacked = F.softshrink(stacked, lambd=self.sparsity_threshold)
             out = torch.view_as_complex(stacked)
-            out = torch.fft.irfft2(out, s=(H, W), dim=(1, 2), norm="backward")
+            out = torch.fft.irfft2(out, s=(H, W), dim=(1, 2), norm="ortho")
             return out + bias
 
     torch.manual_seed(0)
-    hidden_size, num_blocks, H, W = 16, 4, 8, 8
+    hidden_size, num_blocks, H, W = 16, 4, 8, 16
 
     torch_layer = TorchAFNO2D(hidden_size, num_blocks)
     torch_layer.eval()

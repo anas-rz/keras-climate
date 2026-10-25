@@ -65,6 +65,7 @@ from keras_climate.weights.mappings.informer_mapping import build_informer_mappe
 from keras_climate.weights.mappings.autoformer_mapping import build_autoformer_mapper
 from keras_climate.weights.mappings.afno_mapping import build_afno_mapper
 from keras_climate.weights.mappings.fourcastnet_mapping import (
+    FOURCASTNET_SKIP_PATTERNS,
     build_fourcastnet_mapper,
     convert_fourcastnet_state_dict,
     load_fourcastnet_checkpoint,
@@ -116,6 +117,7 @@ __all__ = [
     "build_informer_mapper",
     "build_autoformer_mapper",
     "build_afno_mapper",
+    "FOURCASTNET_SKIP_PATTERNS",
     "build_fourcastnet_mapper",
     "convert_fourcastnet_state_dict",
     "load_fourcastnet_checkpoint",

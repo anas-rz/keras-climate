@@ -1,4 +1,5 @@
 import keras
+import numpy as np
 from keras import layers, ops
 from keras_climate.utils.layers import MLP, rfft2_hw, irfft2_hw, unpatchify_2d
 
@@ -11,6 +12,7 @@ class AFNO2D(layers.Layer):
         num_blocks=8,
         sparsity_threshold=0.01,
         hidden_size_factor=1,
+        hard_thresholding_fraction=1.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -19,6 +21,7 @@ class AFNO2D(layers.Layer):
         self.block_size = hidden_size // num_blocks
         self.hidden_size_factor = hidden_size_factor
         self.sparsity_threshold = sparsity_threshold
+        self.hard_thresholding_fraction = hard_thresholding_fraction
 
     def build(self, input_shape):
         scale = 0.02
@@ -37,7 +40,11 @@ class AFNO2D(layers.Layer):
     def call(self, x):
         bias = x
         H, W = x.shape[1], x.shape[2]
+        # Orthonormal FFT (`norm="ortho"` in the reference): scale by 1/sqrt(H*W)
+        # each way, so the biases and the shrinkage threshold act at the right scale.
+        scale = float(np.sqrt(H * W))
         re, im = rfft2_hw(x)
+        re, im = re / scale, im / scale
 
         shape = ops.shape(re)
         B, Wf = shape[0], shape[2]
@@ -73,8 +80,21 @@ class AFNO2D(layers.Layer):
         o2_re = ops.sign(o2_re) * ops.relu(ops.abs(o2_re) - lam)
         o2_im = ops.sign(o2_im) * ops.relu(ops.abs(o2_im) - lam)
 
-        out = irfft2_hw(o2_re, o2_im, H, W)
+        mask = ops.convert_to_tensor(self._mode_mask(H, W // 2 + 1), o2_re.dtype)
+        o2_re, o2_im = o2_re * mask, o2_im * mask
+
+        out = irfft2_hw(o2_re * scale, o2_im * scale, H, W)
         return out + bias
+
+    def _mode_mask(self, H, Wf):
+        # The reference keeps rows [total - kept, total + kept) and the first `kept`
+        # width modes, with total = H // 2 + 1, and zeroes all the other modes.
+        total = H // 2 + 1
+        kept = int(total * self.hard_thresholding_fraction)
+        rows = np.zeros(H, dtype="float32")
+        rows[max(total - kept, 0) : total + kept] = 1.0
+        cols = (np.arange(Wf) < kept).astype("float32")
+        return (rows[:, None] * cols[None, :])[None, :, :, None]
 
 
 class AFNOBlock(layers.Layer):

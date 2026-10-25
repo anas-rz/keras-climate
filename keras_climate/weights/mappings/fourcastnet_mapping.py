@@ -2,6 +2,9 @@ import re
 
 from keras_climate.weights.mappings.afno_mapping import build_afno_mapper
 
+# The checkpoint's final `norm` is unused by the reference forward pass.
+FOURCASTNET_SKIP_PATTERNS = [r"^norm\.(weight|bias)$"]
+
 
 def load_fourcastnet_checkpoint(path):
     import torch
@@ -24,8 +27,6 @@ def build_fourcastnet_mapper(depth):
     afno_mapper = build_afno_mapper(depth)
     rules = [
         (r"^pos_embed$", "pos_embed_layer/pos_embed"),
-        (r"^norm\.weight$", "norm/gamma"),
-        (r"^norm\.bias$", "norm/beta"),
     ]
     compiled = [(re.compile(p), r) for p, r in rules]
 

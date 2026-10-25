@@ -47,6 +47,7 @@ from keras_climate.weights.mappings import (
     load_satclip_checkpoint,
     build_satclip_location_mapper,
     SATCLIP_SKIP_PATTERNS,
+    FOURCASTNET_SKIP_PATTERNS,
     build_fourcastnet_mapper,
     convert_fourcastnet_state_dict,
     load_fourcastnet_checkpoint,
@@ -365,9 +366,9 @@ def fourcastnet_backbone(cache_dir=None, strict=True):
     raw_state_dict = load_fourcastnet_checkpoint(path)
     state_dict = convert_fourcastnet_state_dict(raw_state_dict, grid_h, grid_w)
     mapper = build_fourcastnet_mapper(depth=12)
-    report = WeightConverter(model, state_dict, mapper).convert(
-        strict=strict, verbose=True
-    )
+    report = WeightConverter(
+        model, state_dict, mapper, skip_patterns=FOURCASTNET_SKIP_PATTERNS
+    ).convert(strict=strict, verbose=True)
     return model, report
 
 

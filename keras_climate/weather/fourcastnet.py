@@ -48,7 +48,8 @@ def FourCastNet(
     for i in range(depth):
         x = AFNOBlock(embed_dim, num_blocks, mlp_ratio, name=f"block{i}")(x)
 
-    x = layers.LayerNormalization(epsilon=1e-6, name="norm")(x)
+    # The reference defines a final `norm` but never applies it: the head reads
+    # the last block's output directly.
     x = layers.Dense(patch_size * patch_size * out_chans, use_bias=False, name="head")(
         x
     )
