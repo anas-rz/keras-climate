@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "keras_climate"
+dynamic = ["version"]
+description = "Keras 3 framework for climate modeling and Earth observation"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["keras>=3.0", "numpy"]
+
+[project.urls]
+Homepage = "https://github.com/anas-rz/keras-climate"
+Documentation = "https://anas-rz.github.io/keras-climate/"
+Repository = "https://github.com/anas-rz/keras-climate"
+
+[tool.setuptools.dynamic]
+version = { attr = "keras_climate.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["keras_climate*"]
